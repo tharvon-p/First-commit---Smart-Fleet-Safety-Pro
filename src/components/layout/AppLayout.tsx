@@ -74,6 +74,38 @@ export default function AppLayout({ children }: AppLayoutProps) {
     }
   ];
 
+  const isDriverView = pathname === '/inspection';
+
+  if (isDriverView) {
+    return (
+      <div className="min-h-screen bg-[#f8fafc] flex flex-col font-sans">
+        {/* แถบหัวเว็บบนมือถือสำหรับคนขับแบบเดี่ยวๆ ไม่เปิดช่องให้กดเข้าเมนูควบคุมอื่น */}
+        <header className="bg-blue-950 text-white px-4 py-4 flex items-center justify-between shadow-md border-b border-blue-900/30 sticky top-0 z-40">
+          <div className="flex items-center gap-2.5 mx-auto">
+            <div className="bg-red-700 p-2.5 rounded-xl text-white shadow-sm shadow-red-700/20">
+              <Bus className="h-5 w-5" />
+            </div>
+            <div className="text-center">
+              <h1 className="font-extrabold text-sm leading-tight tracking-tight">Smart Fleet Safety Pro</h1>
+              <p className="text-[10px] text-slate-300">ระบบส่งรายงานตรวจสภาพรถบัสประจำวัน - Thailux</p>
+            </div>
+          </div>
+        </header>
+        <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+          <div className="flex-1 p-4 sm:p-6 lg:p-8">
+            {children}
+          </div>
+          {/* ลิงก์เล็กๆ ท้ายหน้าสำหรับเจ้าหน้าที่ในออฟฟิศกดกลับหน้าควบคุม */}
+          <div className="text-center py-6 mt-4 border-t border-slate-100 no-print">
+            <Link href="/" className="text-xs text-slate-400 hover:text-blue-900 font-semibold transition-colors">
+              📊 สำหรับเจ้าหน้าที่: เข้าสู่ระบบแดชบอร์ดศูนย์ควบคุม
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#f8fafc] flex flex-col font-sans">
       {/* ==========================================
