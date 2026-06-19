@@ -17,7 +17,10 @@ import {
   Bus,
   ShieldCheck,
   AlertTriangle,
-  Database
+  Database,
+  Lock,
+  User,
+  LogOut
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -30,9 +33,18 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isFallback, setIsFallback] = useState(false);
 
-  // ดึงสถานะการใช้ฐานข้อมูลจำลองจาก API ตอนโหลดแอปครั้งแรก
+  // สเตตสำหรับการล็อกอินและการรักษาความปลอดภัย
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  // ดึงสถานะการใช้ฐานข้อมูลจำลองจาก API และตรวจสอบเซสชันตอนโหลดแอปครั้งแรก
   useEffect(() => {
-    async function checkDb() {
+    async function initApp() {
+      // 1. ตรวจสอบการเชื่อมต่อฐานข้อมูล
       try {
         const res = await fetch('/api/inspections?query=test-conn');
         const data = await res.json();
@@ -42,9 +54,59 @@ export default function AppLayout({ children }: AppLayoutProps) {
       } catch {
         setIsFallback(true);
       }
+
+      // 2. ตรวจสอบเซสชันการล็อกอินจาก localStorage
+      const token = localStorage.getItem('thailux_session_token');
+      if (token === 'session_thailux_safety_token_approved') {
+        setIsAuthenticated(true);
+      }
+      setIsCheckingAuth(false);
     }
-    checkDb();
+    initApp();
   }, []);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!username.trim() || !password.trim()) {
+      setLoginError('กรุณากรอกชื่อผู้ใช้งานและรหัสผ่าน');
+      return;
+    }
+
+    setLoginLoading(true);
+    setLoginError('');
+
+    try {
+      const response = await fetch('/api/auth', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        localStorage.setItem('thailux_session_token', data.token);
+        setIsAuthenticated(true);
+        setLoginError('');
+      } else {
+        setLoginError(data.message || 'ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง');
+      }
+    } catch (err) {
+      console.error('Login error:', err);
+      setLoginError('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('thailux_session_token');
+    setIsAuthenticated(false);
+    setUsername('');
+    setPassword('');
+  };
 
   // รายการเมนูหลักตามข้อกำหนด
   const menuItems = [
@@ -105,7 +167,124 @@ export default function AppLayout({ children }: AppLayoutProps) {
       </div>
     );
   }
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen bg-blue-950 flex flex-col items-center justify-center font-sans text-white">
+        <div className="flex flex-col items-center gap-4">
+          <div className="bg-red-700 p-4 rounded-2xl animate-bounce shadow-lg shadow-red-700/30">
+            <Bus className="h-10 w-10 text-white" />
+          </div>
+          <div className="text-center animate-pulse">
+            <h2 className="text-xl font-bold tracking-wider">Smart Fleet Safety Pro</h2>
+            <p className="text-xs text-blue-300 mt-1">กำลังตรวจสอบสิทธิ์การเข้าใช้งาน...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-950 via-slate-900 to-blue-950 flex items-center justify-center p-4 font-sans select-none relative overflow-hidden">
+        {/* Decorative ambient blobs */}
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-700/10 rounded-full blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-red-700/10 rounded-full blur-[120px] pointer-events-none" />
+
+        <div className="w-full max-w-md bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl border border-white/20 overflow-hidden relative z-10">
+          {/* Header */}
+          <div className="bg-blue-950 text-white px-8 py-8 relative">
+            <div className="absolute top-0 right-0 p-6 opacity-10">
+              <ShieldCheck className="h-28 w-28 text-white" />
+            </div>
+            <div className="flex items-center gap-3.5 mb-2">
+              <div className="bg-red-700 p-3 rounded-2xl text-white shadow-md shadow-red-700/30">
+                <Bus className="h-6 w-6" />
+              </div>
+              <div>
+                <h1 className="font-extrabold text-lg leading-tight tracking-tight">Smart Fleet Safety Pro</h1>
+                <p className="text-xs text-slate-300">ฝ่ายปฏิบัติการขนส่ง • Thailux</p>
+              </div>
+            </div>
+            <p className="text-xs text-blue-200 mt-4 font-medium">เข้าสู่ระบบควบคุมแดชบอร์ดและส่วนจัดการความปลอดภัย</p>
+          </div>
+
+          {/* Form Content */}
+          <form onSubmit={handleLogin} className="p-8 space-y-6">
+            {loginError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs font-semibold flex items-center gap-2.5 animate-shake">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-red-600" />
+                <span>{loginError}</span>
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                  ชื่อผู้ใช้งาน (Username)
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                    <User className="h-4 w-4" />
+                  </div>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 text-slate-800 transition-all font-medium placeholder-slate-400"
+                    placeholder="กรอกชื่อผู้ใช้งาน"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                  รหัสผ่าน (Password)
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                    <Lock className="h-4 w-4" />
+                  </div>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 text-slate-800 transition-all font-medium placeholder-slate-400"
+                    placeholder="กรอกรหัสผ่าน"
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loginLoading}
+              className="w-full bg-blue-950 hover:bg-blue-900 text-white font-bold py-3.5 px-4 rounded-xl text-sm transition-all shadow-md active:scale-[0.98] disabled:opacity-75 disabled:pointer-events-none flex items-center justify-center gap-2"
+            >
+              {loginLoading ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  กำลังตรวจสอบสิทธิ์...
+                </>
+              ) : (
+                'เข้าสู่ระบบแดชบอร์ด'
+              )}
+            </button>
+
+            <div className="text-center pt-2">
+              <Link href="/inspection" className="text-xs text-blue-900 hover:underline font-bold transition-all">
+                📋 ไปยังหน้าฟอร์มตรวจสภาพรถ (สำหรับคนขับ)
+              </Link>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="min-h-screen bg-[#f8fafc] flex flex-col font-sans">
       {/* ==========================================
@@ -235,6 +414,14 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
           {/* แผงควบคุมด้านล่าง (Footer panel ของ Sidebar) */}
           <div className="p-4 border-t border-blue-900/30 lg:border-slate-100 bg-blue-900/10 lg:bg-slate-50/50 space-y-3">
+            {/* ปุ่มออกจากระบบ */}
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-red-700 bg-red-700/10 hover:bg-red-700 text-red-500 hover:text-white transition-all font-bold text-xs lg:border-red-200 lg:bg-red-50 lg:hover:bg-red-600 lg:text-red-700 lg:hover:text-white mb-2"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>ออกจากระบบ</span>
+            </button>
             {/* กล่องระบุสถานะฐานข้อมูล */}
             <div className={cn(
               "p-3 rounded-xl border flex items-center gap-3 transition-colors",
