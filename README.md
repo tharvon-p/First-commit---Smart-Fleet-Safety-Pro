@@ -1,36 +1,137 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Smart Fleet Safety Pro (ระบบตรวจสภาพรถบัสประจำวัน - Thailux) 🚌✨
 
-## Getting Started
+ระบบเว็บแอปพลิเคชันสำหรับตรวจสภาพรถบัสประจำวันแบบครบวงจร พัฒนาด้วย Next.js (App Router), Tailwind CSS, และ Prisma ORM รองรับการเก็บข้อมูลลงฐานข้อมูล PostgreSQL (เช่น Supabase / Vercel Postgres) และมีระบบ **Smart Fallback** สลับไปเซฟลงไฟล์ JSON ในเครื่องอัตโนมัติ หากยังไม่ได้เชื่อมต่อฐานข้อมูลจริง เพื่อให้ผู้ใช้สามารถกดรันและทดสอบระบบได้ทันที!
 
-First, run the development server:
+---
 
+## 🛠️ รายละเอียดเทคโนโลยีที่ใช้ (Tech Stack)
+* **Framework:** Next.js 16+ (App Router)
+* **CSS & Styling:** Tailwind CSS v4 & ออกแบบระบบ UI ตามมาตรฐาน shadcn/ui
+* **Icons:** Lucide React
+* **Database & ORM:** Prisma ORM ร่วมกับ PostgreSQL (และมีระบบเซฟไฟล์ JSON ในเครื่องเป็นฐานข้อมูลสำรอง)
+* **Language:** ภาษาไทย 100% ทั้งในส่วนควบคุมคนขับและระบบรายงานสำหรับผู้บริหาร
+
+---
+
+## 🚀 ขั้นตอนการติดตั้งและรันโปรเจกต์ (สำหรับผู้เริ่มต้น / ไม่เก่งเทคนิค)
+
+กรุณาทำตามขั้นตอนต่อไปนี้แบบทีละสเต็ป (Step-by-Step):
+
+### ขั้นตอนที่ 1: ติดตั้งโปรแกรม Node.js
+Node.js คือโปรแกรมที่ใช้สำหรับรันระบบเว็บเซิร์ฟเวอร์บนเครื่องคอมพิวเตอร์ของคุณ
+1. เข้าเว็บลิงก์ [Node.js Official Website](https://nodejs.org/)
+2. ดาวน์โหลดเวอร์ชัน **LTS** (แนะนำสำหรับผู้ใช้ทั่วไป เช่น 20.x หรือ 22.x)
+3. ดับเบิ้ลคลิกไฟล์ที่ดาวน์โหลดมา แล้วกด **Next** ยืนยันการติดตั้งไปเรื่อยๆ จนเสร็จสิ้น
+
+---
+
+### ขั้นตอนที่ 2: เปิดโปรเจกต์บนเครื่องของคุณ
+1. เปิดโปรแกรม **Terminal** (สำหรับ macOS/Linux) หรือ **PowerShell / Command Prompt** (สำหรับ Windows)
+2. ใช้คำสั่ง `cd` เพื่อย้ายไปยังโฟลเดอร์ของโปรเจกต์นี้ ตัวอย่างเช่น:
+   ```bash
+   cd c:\Users\kw_user\Desktop\Bus_Inspection_ANTIGRAVITY
+   ```
+
+---
+
+### ขั้นตอนที่ 3: ติดตั้งปลั๊กอินและโมดูล (Dependencies)
+รันคำสั่งด้านล่างนี้เพื่อสั่งให้ระบบดาวน์โหลดชุดคำสั่งที่จำเป็นมาเก็บไว้ในเครื่องของคุณ:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+```
+*(ขั้นตอนนี้อาจใช้เวลาประมาณ 1-2 นาที กรุณารอจนเสร็จสิ้นและไม่พบข้อผิดพลาด)*
+
+---
+
+### ขั้นตอนที่ 4: การตั้งค่าฐานข้อมูลและตัวแปรระบบ (.env)
+โปรเจกต์นี้มีระบบ **Smart Fallback** หากไม่มีฐานข้อมูลจริง ระบบจะเขียนข้อมูลลงไฟล์ `db_fallback.json` ในคอมพิวเตอร์ของคุณโดยอัตโนมัติ ทำให้คุณ **สามารถข้ามขั้นตอนนี้ไปรันเซิร์ฟเวอร์ได้ทันที!**
+
+แต่หากต้องการเชื่อมต่อฐานข้อมูล **PostgreSQL** จริง (เช่น Supabase หรือ Vercel Postgres) ให้ทำตามดังนี้:
+1. สร้างไฟล์ใหม่ชื่อ `.env` ในโฟลเดอร์หลักของโปรเจกต์ (หรือคัดลอกไฟล์ `.env.example` แล้วเปลี่ยนชื่อเป็น `.env`)
+2. ใส่ที่อยู่ฐานข้อมูลของคุณลงไปในบรรทัดดังนี้:
+   ```env
+   DATABASE_URL="postgresql://username:password@your-database-host:5432/databasename?schema=public"
+   ```
+3. บันทึกไฟล์ให้เรียบร้อย
+
+---
+
+### ขั้นตอนที่ 5: การรันคำสั่งอัปเดตโครงสร้างฐานข้อมูล (Prisma Migration)
+*(ทำเฉพาะกรณีที่คุณทำขั้นตอนที่ 4 และต่อ PostgreSQL จริงเท่านั้น)*
+รันคำสั่งเหล่านี้ใน Terminal เพื่อสร้างตารางข้อมูล `Inspection` ใน PostgreSQL ของคุณ:
+```bash
+npx prisma migrate dev --name init
+```
+และรันคำสั่งนี้เพื่อสร้างไฟล์เชื่อมต่อโค้ด:
+```bash
+npx prisma generate
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### ขั้นตอนที่ 6: วิธีการเปิดรันแอปพลิเคชัน (Start Web Server)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+#### สำหรับการทดสอบและพัฒนาระบบ (Development Mode)
+รันคำสั่งนี้เพื่อเปิดเว็บสำหรับเข้าใช้งานและแก้ไขโค้ดแบบเรียลไทม์:
+```bash
+npm run dev
+```
+หลังจากรันสำเร็จ หน้าจอจะแสดงข้อความว่าแอปพลิเคชันพร้อมแล้ว ให้เปิดบราวเซอร์ (เช่น Google Chrome) แล้วเข้าไปที่ลิงก์:
+👉 **[http://localhost:3000](http://localhost:3000)**
 
-## Learn More
+#### สำหรับการรันใช้งานจริง (Production Mode)
+หากต้องการรันแบบความเร็วสูงสุดสำหรับใช้งานจริง ให้รันคำสั่งแพ็กระบบและเปิดเซิร์ฟเวอร์:
+```bash
+npm run build
+npm run start
+```
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### ขั้นตอนที่ 7: การสร้างข้อมูลตัวอย่างเพื่อการทดสอบ (Seed Mock Data)
+เมื่อเปิดเว็บขึ้นมาครั้งแรก ตารางแดชบอร์ดจะว่างเปล่า เพื่อให้ง่ายต่อการเห็นภาพและทดสอบฟิลเตอร์:
+1. เปิดเว็บไปที่หน้า **📊 แดชบอร์ดภาพรวม** ([http://localhost:3000/](http://localhost:3000/))
+2. สังเกตที่หัวตารางข้อมูลสภาพบัส จะมีปุ่มสีน้ำเงินเขียนว่า **"สร้างข้อมูลจำลอง"**
+3. คลิกปุ่มดังกล่าวแล้วกดยืนยัน ระบบจะจำลองข้อมูลการตรวจสภาพรถย้อนหลัง 15 วัน จำนวน 15-20 รายการลงฐานข้อมูลให้คุณทันที! (หรือคุณจะสามารถเข้าลิงก์ตรงที่ [http://localhost:3000/api/seed](http://localhost:3000/api/seed) เพื่อสั่งเซ็ตข้อมูลตัวอย่างก็ได้เช่นกัน)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## 📂 โครงสร้างหน้าจอและเมนูนำทาง (Application Views)
+ระบบแบ่งออกเป็น 4 หน้าจอหลักที่สามารถสลับใช้งานได้จาก **Sidebar** ด้านซ้าย:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. **📊 แดชบอร์ดภาพรวม (Dashboard View - Desktop First):**
+   * บล็อกการ์ดสรุปสถิติความปลอดภัยรถบัส 4 ช่อง (ตรวจสะสม, ปกติ, รอซ่อม, ระงับการวิ่ง)
+   * แถบตัวกรองระดับสูง (ค้นหาทะเบียน/คนขับ, กรองโรงงาน, กรองสถานะ, และกรองช่วงวันที่)
+   * ตารางข้อมูลแสดงผลเรียลไทม์พร้อมแถบ Badge สีตามความอันตราย
+   * ปุ่มจัดการสำหรับนายสถานีและช่าง เพื่อกรอกรายละเอียดและกดบันทึกปิดงานซ่อมบำรุง
+2. **📋 ตรวจสภาพรถประจำวัน (Inspection Form View - Mobile First):**
+   * หน้ากรอกฟอร์มแนวตั้งออกแบบให้คนขับจิ้มผ่านมือถือได้สะดวก
+   * ฟอร์มประวัติพนักงาน สังกัดโรงงาน เลขไมล์สะสม กะเวลาทำงาน
+   * รายการเช็กลิสต์ความปลอดภัย 21 จุด แยกตามหมวดหมู่ชัดเจน พร้อมมีดอกจันสีแดงระบุจุดวิกฤตความปลอดภัย
+   * ช่องถ่ายรูปแนบหลักฐานจริง 3 ช่อง พร้อมกล่องยืนยัน และปุ่มคำนวณสถานะส่งผลลัพธ์ลงระบบทันที
+3. **🛠️ ประวัติการซ่อมบำรุง (Maintenance Log View):**
+   * ศูนย์รวมงานซ่อมแซมบำรุงรักษาสำหรับนายช่าง
+   * แยกเป็นแท็บ คิวงานซ่อมค้างอยู่ และประวัติงานที่ซ่อมเสร็จแล้ว
+   * บล็อกการ์ดแยกตามป้ายทะเบียน แสดงลิสต์จุดที่ชำรุดเป็นป้ายสีแดงเพื่อนำไปเบิกของเปลี่ยนอะไหล่ได้ทันที
+4. **📑 ออกรายงาน PDF (PDF Reports View):**
+   * ตารางตาราง Matrix 31 วัน (21 แถวรายการเช็ก x 31 คอลัมน์วันของเดือน) เพื่อสแกนสุขภาพสภาพรถบัสรายคัน
+   * จัดสไตล์พิเศษสำหรับส่งออกพิมพ์กระดาษ A4 แนวนอน โดยเมื่อกดปุ่มระบบจะเปิด Printer Dialogue ของเครื่องขึ้นมาเพื่อเซฟเป็น PDF ที่สมบูรณ์แบบพร้อมช่องลงลายมือชื่อพยาน 3 ฝ่าย
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## ☁️ การนำขึ้นสู่ระบบคลาวด์ (GitHub & Vercel Deployment)
+
+1. **อัปโหลดโค้ดขึ้น GitHub:**
+   * สมัครบัญชี GitHub จากนั้นสร้าง Repository ใหม่
+   * รันคำสั่งในโฟลเดอร์โปรเจกต์:
+     ```bash
+     git add .
+     git commit -m "Initialize Smart Fleet Safety Pro Project"
+     git branch -M main
+     git remote add origin <URL-ของ-repository-คุณ>
+     git push -u origin main
+     ```
+2. **Deploy ขึ้น Vercel:**
+   * เชื่อมโยงบัญชี Vercel กับ GitHub ของคุณ
+   * เลือกโปรเจกต์ `smart-fleet-safety-pro` แล้วกด **Deploy**
+   * ในส่วน **Environment Variables** ของ Vercel ให้ตั้งค่าค่า `DATABASE_URL` เพื่อเชื่อมต่อ PostgreSQL (หากไม่ได้ตั้งค่า ระบบจะใช้ออปชันไฟล์ JSON จำลองในการรันช่วงเริ่มแรกบนคลาวด์)

@@ -1,0 +1,47 @@
+// prisma/schema.prisma
+// ไฟล์โครงสร้างฐานข้อมูล (Prisma Schema) สำหรับระบบ Smart Fleet Safety Pro
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // directUrl = env("DIRECT_URL") // สำหรับการเชื่อมต่อโดยตรงกับ Supabase (ถ้ามี)
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// โมเดลสำหรับเก็บข้อมูลการตรวจสภาพรถประจำวัน (Inspection Record)
+model Inspection {
+  id            String    @id @default(uuid()) // รหัสการตรวจแบบ UUID
+  factory       String    // สังกัดโรงงาน (เช่น KCE, สุริยัน)
+  plateNumber   String    // ทะเบียนรถบัส
+  driverName    String    // ชื่อพนักงานขับรถ
+  driverPhone   String    // เบอร์โทรศัพท์พนักงานขับรถ
+  shift         String    // กะ/เที่ยววิ่ง (เช่น กะเช้า, กะดึก)
+  mileage       Int       // เลขไมล์รถบัสปัจจุบัน
+  
+  // รายการตรวจเช็ก 21 จุด จะเก็บในรูปแบบ JSON object: { "oil": true, "brake": false, ... }
+  // ค่า true = ปกติ, false = ชำรุด
+  items         Json
+  
+  // อาร์เรย์ของรูปภาพหลักฐานที่คนขับอัปโหลด เก็บในรูปแบบ JSON array: ["image1_url", "image2_url", ...]
+  images        Json
+  
+  // สถานะการวิ่ง/การซ่อม: "ปกติ", "รอคิวซ่อม", "ระงับการวิ่ง", "ซ่อมเสร็จสิ้น"
+  status        String
+  
+  // ข้อมูลหมายเหตุเพิ่มเติมจากช่างเทคนิคเมื่อมีการดำเนินการซ่อมบำรุง
+  mechanicNotes String?   @db.Text
+  
+  // วันเวลาที่ทำการซ่อมเสร็จสิ้น
+  repairedAt    DateTime?
+  
+  // วันเวลาที่สร้างและอัปเดตฟอร์มตรวจสภาพ
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // สร้าง Index เพื่อเพิ่มความเร็วในการค้นหาข้อมูล
+  @@index([plateNumber])
+  @@index([status])
+}
