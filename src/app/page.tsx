@@ -37,6 +37,17 @@ export default function DashboardPage() {
   const [mechanicNotes, setMechanicNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // สเตตสำหรับพรีวิวรูปภาพ
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewImageUrl, setPreviewImageUrl] = useState('');
+  const [previewTitle, setPreviewTitle] = useState('');
+
+  const handleOpenImageModal = (imgUrl: string, plateNumber: string) => {
+    setPreviewImageUrl(imgUrl);
+    setPreviewTitle(`รูปถ่ายหลักฐาน: ${plateNumber}`);
+    setIsPreviewOpen(true);
+  };
+
   // ฟิลเตอร์การแสดงผล
   const [searchQuery, setSearchQuery] = useState('');
   const [factoryFilter, setFactoryFilter] = useState('ทั้งหมด');
@@ -375,6 +386,7 @@ export default function DashboardPage() {
                   <th className="px-6 py-4">พนักงานขับรถ</th>
                   <th className="px-6 py-4">เลขไมล์สะสม</th>
                   <th className="px-6 py-4">สภาพจุดชำรุด</th>
+                  <th className="px-6 py-4 text-center">รูปถ่าย</th>
                   <th className="px-6 py-4">ผลลัพธ์</th>
                   <th className="px-6 py-4 text-center">จัดการ</th>
                 </tr>
@@ -417,6 +429,25 @@ export default function DashboardPage() {
                             ⚠ ชำรุด {defected.length} จุด: {defected.slice(0, 2).join(', ')}
                             {defected.length > 2 && '...'}
                           </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4.5 text-center whitespace-nowrap">
+                        {row.images && (row.images as string[]).length > 0 ? (
+                          <div className="flex items-center justify-center gap-1">
+                            {(row.images as string[]).map((img, idx) => (
+                              <div 
+                                key={idx} 
+                                className="relative w-8 h-8 rounded-lg overflow-hidden border border-slate-200 hover:scale-110 hover:border-blue-900 transition-all duration-150 cursor-pointer shadow-sm"
+                                title="คลิกเพื่อขยายรูปภาพ"
+                                onClick={() => handleOpenImageModal(img, row.plateNumber)}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={img} alt="Evidence thumbnail" className="w-full h-full object-cover" />
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-slate-300 text-xs font-medium">-</span>
                         )}
                       </td>
                       <td className="px-6 py-4.5 whitespace-nowrap">
@@ -595,6 +626,33 @@ export default function DashboardPage() {
 
           </div>
         )}
+      </Dialog>
+
+      {/* ==========================================
+          IMAGE PREVIEW DIALOG (ป๊อปอัปพรีวิวรูปภาพขนาดใหญ่)
+          ========================================== */}
+      <Dialog
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        title={previewTitle}
+      >
+        <div className="flex flex-col items-center justify-center">
+          <div className="relative w-full max-h-[70vh] bg-slate-50 rounded-2xl overflow-hidden border border-slate-100 flex items-center justify-center p-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img 
+              src={previewImageUrl} 
+              alt="Evidence Large Preview" 
+              className="max-w-full max-h-[65vh] rounded-xl object-contain shadow-md"
+            />
+          </div>
+          <Button
+            variant="secondary"
+            onClick={() => setIsPreviewOpen(false)}
+            className="mt-5 text-xs px-6 rounded-xl"
+          >
+            ปิดหน้าต่าง
+          </Button>
+        </div>
       </Dialog>
 
     </div>

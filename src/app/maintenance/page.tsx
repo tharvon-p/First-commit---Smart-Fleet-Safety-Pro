@@ -13,7 +13,8 @@ import {
   AlertTriangle, 
   ClipboardList,
   RefreshCw,
-  Phone
+  Phone,
+  Camera
 } from 'lucide-react';
 import { 
   Card, 
@@ -35,6 +36,17 @@ export default function MaintenanceLogPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [mechanicNotes, setMechanicNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // สเตตสำหรับพรีวิวรูปภาพ
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewImageUrl, setPreviewImageUrl] = useState('');
+  const [previewTitle, setPreviewTitle] = useState('');
+
+  const handleOpenImageModal = (imgUrl: string, plateNumber: string) => {
+    setPreviewImageUrl(imgUrl);
+    setPreviewTitle(`รูปถ่ายหลักฐาน: ${plateNumber}`);
+    setIsPreviewOpen(true);
+  };
 
   // ดึงข้อมูลการซ่อมทั้งหมดจากฐานข้อมูล
   const fetchMaintenanceJobs = useCallback(async () => {
@@ -278,6 +290,29 @@ export default function MaintenanceLogPage() {
                     </div>
                   </div>
 
+                  {/* รูปภาพหลักฐานแนบมา */}
+                  {job.images && (job.images as string[]).length > 0 && (
+                    <div className="pt-2 border-t border-slate-50">
+                      <p className="text-[10px] font-bold text-slate-500 mb-2 flex items-center gap-1">
+                        <Camera className="h-3.5 w-3.5 text-blue-900" />
+                        รูปถ่ายแนบประกอบ ({ (job.images as string[]).length } ภาพ):
+                      </p>
+                      <div className="flex gap-2">
+                        {(job.images as string[]).map((img, idx) => (
+                          <div 
+                            key={idx} 
+                            className="relative w-12 h-12 rounded-lg overflow-hidden border border-slate-200 hover:scale-105 hover:border-blue-900 transition-all duration-150 cursor-pointer shadow-sm"
+                            title="คลิกเพื่อขยายรูปภาพ"
+                            onClick={() => handleOpenImageModal(img, job.plateNumber)}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={img} alt="Evidence thumbnail" className="w-full h-full object-cover" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* หมายเหตุช่าง (ถ้ามี/ปิดงานซ่อมเสร็จ) */}
                   {job.status === 'ซ่อมเสร็จสิ้น' && (
                     <div className="bg-sky-50 border border-sky-200 p-3.5 rounded-xl text-xs text-sky-800 space-y-1">
@@ -369,6 +404,33 @@ export default function MaintenanceLogPage() {
             </div>
           </div>
         )}
+      </Dialog>
+
+      {/* ==========================================
+          IMAGE PREVIEW DIALOG (ป๊อปอัปพรีวิวรูปภาพขนาดใหญ่)
+          ========================================== */}
+      <Dialog
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        title={previewTitle}
+      >
+        <div className="flex flex-col items-center justify-center">
+          <div className="relative w-full max-h-[70vh] bg-slate-50 rounded-2xl overflow-hidden border border-slate-100 flex items-center justify-center p-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img 
+              src={previewImageUrl} 
+              alt="Evidence Large Preview" 
+              className="max-w-full max-h-[65vh] rounded-xl object-contain shadow-md"
+            />
+          </div>
+          <Button
+            variant="secondary"
+            onClick={() => setIsPreviewOpen(false)}
+            className="mt-5 text-xs px-6 rounded-xl"
+          >
+            ปิดหน้าต่าง
+          </Button>
+        </div>
       </Dialog>
 
     </div>
