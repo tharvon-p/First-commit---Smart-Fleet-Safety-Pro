@@ -65,3 +65,19 @@ model RolePermission {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
+
+// โมเดลสำหรับประวัติข้อมูลส่วนตัวของ พขร. (Driver Profile)
+model DriverProfile {
+  id          String   @id @default(uuid())
+  plateNumber String   @unique // ทะเบียนรถบัส (ใช้ทำ lookup ค้นหาโปรไฟล์)
+  driverName  String   // ชื่อพนักงานขับรถ
+  driverPhone String   // เบอร์โทรศัพท์
+  factory     String   // สังกัดโรงงาน
+  shift       String   // กะทำงาน
+  photo       String?  @db.Text // รูปถ่าย พขร. / รูปประจำรถ (Base64)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([plateNumber])
+}
+

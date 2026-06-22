@@ -48,6 +48,12 @@ export default function InspectionFormPage() {
     mileage: '',
   });
 
+  // สถานะสำหรับระบบโปรไฟล์ พขร. รายป้ายทะเบียน
+  const [driverPhoto, setDriverPhoto] = useState<string | null>(null);
+  const [hasProfile, setHasProfile] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+
   // 2. ข้อมูลเช็กลิสต์ 21 จุด (ตั้งค่าเริ่มต้นให้ "ปกติ = true" ทุกข้อ)
   const [checklist, setChecklist] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
@@ -97,7 +103,74 @@ export default function InspectionFormPage() {
     });
   };
 
-  // ไปยังขั้นตอนถัดไปพร้อมตรวจสอบความถูกต้องของฟิลด์ข้อมูล
+  // ค้นหาข้อมูลโปรไฟล์คนขับรถบัสตามทะเบียนรถ
+  const checkDriverProfile = async (plateNum: string) => {
+    if (!plateNum || plateNum.trim().length < 3) return;
+    setLoadingProfile(true);
+    try {
+      const res = await fetch(`/api/driver-profile?plateNumber=${encodeURIComponent(plateNum.trim())}`);
+      const data = await res.json();
+      if (data.success && data.data) {
+        const profile = data.data;
+        setFormData(prev => ({
+          ...prev,
+          driverName: profile.driverName,
+          driverPhone: profile.driverPhone,
+          factory: profile.factory,
+          shift: profile.shift,
+        }));
+        setDriverPhoto(profile.photo);
+        setHasProfile(true);
+        setIsEditingProfile(false);
+      } else {
+        // ลองดึงค่าจาก cache localStorage เผื่อกรณีอินเทอร์เน็ตมีปัญหา
+        const cachedStr = localStorage.getItem(`thailux_profile_${plateNum.trim()}`);
+        if (cachedStr) {
+          try {
+            const cached = JSON.parse(cachedStr);
+            setFormData(prev => ({
+              ...prev,
+              driverName: cached.driverName,
+              driverPhone: cached.driverPhone,
+              factory: cached.factory,
+              shift: cached.shift,
+            }));
+            setDriverPhoto(cached.photo || null);
+            setHasProfile(true);
+            setIsEditingProfile(false);
+          } catch {
+            setHasProfile(false);
+            setIsEditingProfile(true);
+          }
+        } else {
+          // ไม่พบข้อมูล
+          setHasProfile(false);
+          setIsEditingProfile(true);
+        }
+      }
+    } catch (err) {
+      console.error('Error checking driver profile:', err);
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
+
+  // ดักจับและแปลงไฟล์รูปโปรไฟล์ พขร. เป็น Base64
+  const handleProfilePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setDriverPhoto(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const removeProfilePhoto = () => {
+    setDriverPhoto(null);
+  };
+
   const handleNextStep = () => {
     if (step === 1) {
       if (!formData.plateNumber || !formData.driverName || !formData.driverPhone || !formData.mileage) {
@@ -130,6 +203,7 @@ export default function InspectionFormPage() {
         mileage: parseInt(formData.mileage, 10),
         items: checklist,
         images: uploadedImages.filter(img => img !== ''), // กรองเฉพาะช่องที่มีรูปภาพ
+        driverPhoto: driverPhoto // ส่งรูปโปรไฟล์คนขับไปด้วย
       };
 
       const res = await fetch('/api/inspections', {
@@ -143,6 +217,21 @@ export default function InspectionFormPage() {
       const data = await res.json();
       if (data.success) {
         setSuccessData(data.data);
+        // แคชเก็บข้อมูลโปรไฟล์ในเครื่องทันทีหลังตรวจผ่านสำเร็จ
+        try {
+          localStorage.setItem(
+            `thailux_profile_${formData.plateNumber.trim()}`,
+            JSON.stringify({
+              driverName: formData.driverName,
+              driverPhone: formData.driverPhone,
+              factory: formData.factory,
+              shift: formData.shift,
+              photo: driverPhoto,
+            })
+          );
+        } catch (err) {
+          console.error('Failed to cache profile locally:', err);
+        }
       } else {
         alert(data.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
       }
@@ -228,6 +317,9 @@ export default function InspectionFormPage() {
                   shift: 'กะเช้า (06:00 - 18:00)',
                   mileage: '',
                 });
+                setDriverPhoto(null);
+                setHasProfile(false);
+                setIsEditingProfile(false);
                 setUploadedImages(['', '', '']);
                 const initial: Record<string, boolean> = {};
                 CHECKLIST_ITEMS.forEach(item => {
@@ -302,60 +394,176 @@ export default function InspectionFormPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <FormSelect
-                label="สังกัดโรงงาน"
-                name="factory"
-                value={formData.factory}
-                onChange={handleInputChange}
-                options={[
-                  { value: 'KCE', label: 'KCE (นิคมลาดกระบัง)' },
-                  { value: 'สุริยัน', label: 'สุริยัน (ลานจอดลาดกระบัง)' },
-                  { value: 'อมตะซิตี้', label: 'อมตะซิตี้ (ชลบุรี)' },
-                  { value: 'บางปู', label: 'บางปู (สมุทรปราการ)' }
-                ]}
-              />
+              {/* ทะเบียนรถบัส (กรอกก่อนเพื่อดึงข้อมูล) */}
+              <div className="space-y-1">
+                <FormInput
+                  label="ทะเบียนรถบัส"
+                  name="plateNumber"
+                  placeholder="เช่น 30-1234 กทม."
+                  value={formData.plateNumber}
+                  onChange={handleInputChange}
+                  onBlur={() => checkDriverProfile(formData.plateNumber)}
+                  required
+                />
+                <div className="flex justify-between items-center px-1">
+                  <span className="text-[10px] text-slate-400">
+                    * เมื่อกรอกทะเบียนรถและกดออกนอกช่อง ระบบจะดึงโปรไฟล์ พขร. เก่าอัตโนมัติ
+                  </span>
+                  {loadingProfile && (
+                    <span className="text-[10px] text-blue-900 font-bold animate-pulse">
+                      กำลังค้นหาโปรไฟล์...
+                    </span>
+                  )}
+                </div>
+              </div>
 
-              <FormInput
-                label="ทะเบียนรถบัส"
-                name="plateNumber"
-                placeholder="เช่น 30-1234 กทม."
-                value={formData.plateNumber}
-                onChange={handleInputChange}
-                required
-              />
+              {/* การ์ดโปรไฟล์ พขร. เดิมที่พบในระบบ */}
+              {hasProfile && !isEditingProfile && (
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl p-5 space-y-4 shadow-inner">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-white shadow-md bg-slate-200 flex-shrink-0 flex items-center justify-center relative">
+                      {driverPhoto ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img 
+                          src={driverPhoto} 
+                          alt="Driver Profile" 
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <User className="h-8 w-8 text-slate-400" />
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="font-extrabold text-slate-800 text-sm">{formData.driverName}</h4>
+                      <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                        📞 {formData.driverPhone}
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        🏢 สังกัด: {formData.factory} • {formData.shift}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-200/50">
+                    <span className="text-[11px] text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
+                      ✓ พบโปรไฟล์ พขร. พร้อมใช้
+                    </span>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      className="text-xs py-1 h-8 px-3 border-blue-200 text-blue-900 hover:bg-blue-50"
+                      onClick={() => setIsEditingProfile(true)}
+                    >
+                      แก้ไขโปรไฟล์
+                    </Button>
+                  </div>
+                </div>
+              )}
 
-              <FormInput
-                label="ชื่อ-นามสกุล พนักงานขับรถ"
-                name="driverName"
-                placeholder="กรอกชื่อและนามสกุลจริง"
-                value={formData.driverName}
-                onChange={handleInputChange}
-                required
-              />
+              {/* แบบฟอร์มลงทะเบียน พขร. ใหม่ หรือ เมื่อต้องการแก้ไขข้อมูล */}
+              {(!hasProfile || isEditingProfile) && (
+                <div className="space-y-4 animate-in fade-in duration-200">
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                        {hasProfile ? '🔧 แก้ไขข้อมูลโปรไฟล์' : '📝 ลงทะเบียนข้อมูลโปรไฟล์ พขร. (ครั้งแรก)'}
+                      </span>
+                      {hasProfile && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="text-[10px] h-6 px-2 py-0 border-slate-200 text-slate-500 hover:bg-slate-100"
+                          onClick={() => setIsEditingProfile(false)}
+                        >
+                          ยกเลิกแก้ไข
+                        </Button>
+                      )}
+                    </div>
 
-              <FormInput
-                label="เบอร์โทรศัพท์มือถือ"
-                name="driverPhone"
-                type="tel"
-                placeholder="เช่น 0891234567"
-                maxLength={10}
-                value={formData.driverPhone}
-                onChange={handleInputChange}
-                required
-              />
+                    <FormInput
+                      label="ชื่อ-นามสกุล พนักงานขับรถ"
+                      name="driverName"
+                      placeholder="กรอกชื่อและนามสกุลจริง"
+                      value={formData.driverName}
+                      onChange={handleInputChange}
+                      required
+                    />
 
-              <FormSelect
-                label="กะการทำงาน / เที่ยววิ่ง"
-                name="shift"
-                value={formData.shift}
-                onChange={handleInputChange}
-                options={[
-                  { value: 'กะเช้า (06:00 - 18:00)', label: 'กะเช้า (06:00 - 18:00)' },
-                  { value: 'กะดึก (18:00 - 06:00)', label: 'กะดึก (18:00 - 06:00)' },
-                  { value: 'เที่ยววิ่งเสริมกลางวัน', label: 'เที่ยววิ่งเสริมกลางวัน' }
-                ]}
-              />
+                    <FormInput
+                      label="เบอร์โทรศัพท์มือถือ"
+                      name="driverPhone"
+                      type="tel"
+                      placeholder="เช่น 0891234567"
+                      maxLength={10}
+                      value={formData.driverPhone}
+                      onChange={handleInputChange}
+                      required
+                    />
 
+                    <FormSelect
+                      label="สังกัดโรงงาน"
+                      name="factory"
+                      value={formData.factory}
+                      onChange={handleInputChange}
+                      options={[
+                        { value: 'KCE', label: 'KCE (นิคมลาดกระบัง)' },
+                        { value: 'สุริยัน', label: 'สุริยัน (ลานจอดลาดกระบัง)' },
+                        { value: 'อมตะซิตี้', label: 'อมตะซิตี้ (ชลบุรี)' },
+                        { value: 'บางปู', label: 'บางปู (สมุทรปราการ)' }
+                      ]}
+                    />
+
+                    <FormSelect
+                      label="กะการทำงาน / เที่ยววิ่ง"
+                      name="shift"
+                      value={formData.shift}
+                      onChange={handleInputChange}
+                      options={[
+                        { value: 'กะเช้า (06:00 - 18:00)', label: 'กะเช้า (06:00 - 18:00)' },
+                        { value: 'กะดึก (18:00 - 06:00)', label: 'กะดึก (18:00 - 06:00)' },
+                        { value: 'เที่ยววิ่งเสริมกลางวัน', label: 'เที่ยววิ่งเสริมกลางวัน' }
+                      ]}
+                    />
+
+                    {/* ช่องอัปโหลดรูปถ่ายโปรไฟล์ พขร. */}
+                    <div className="space-y-1.5">
+                      <span className="text-xs font-bold text-slate-500">รูปถ่ายโปรไฟล์ พขร. / รถบัสประจำตัว (อัปโหลดทางเลือก)</span>
+                      <div className="flex items-center gap-3">
+                        <div className="w-16 h-16 rounded-full border border-slate-200 bg-white flex items-center justify-center overflow-hidden flex-shrink-0 relative shadow-sm">
+                          {driverPhoto ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={driverPhoto} alt="Preview Profile" className="w-full h-full object-cover" />
+                          ) : (
+                            <User className="h-7 w-7 text-slate-300" />
+                          )}
+                          {driverPhoto && (
+                            <button
+                              type="button"
+                              onClick={removeProfilePhoto}
+                              className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
+                            >
+                              <X className="h-4 w-4 text-white" />
+                            </button>
+                          )}
+                        </div>
+                        <label className="flex-1">
+                          <div className="border border-dashed border-slate-300 hover:border-blue-900 rounded-xl p-3 text-center cursor-pointer transition-colors flex items-center justify-center gap-2 text-xs font-bold text-slate-500 hover:text-blue-900 bg-white shadow-sm">
+                            <Camera className="h-4 w-4 text-slate-400" />
+                            {driverPhoto ? 'เปลี่ยนรูปถ่ายโปรไฟล์' : 'อัปโหลดรูปโปรไฟล์'}
+                          </div>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleProfilePhotoChange}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ช่องเลขไมล์ปัจจุบัน (พขร. ต้องกรอกทุกวันอยู่ดี) */}
               <FormInput
                 label="เลขไมล์รถบัสปัจจุบัน (กิโลเมตร)"
                 name="mileage"

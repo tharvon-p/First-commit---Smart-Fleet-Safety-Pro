@@ -36,6 +36,20 @@ export interface UserRecord {
   updatedAt: string;               // วันที่แก้ไขล่าสุด (ISO String)
 }
 
+// กำหนดโครงสร้างข้อมูลประวัติ พขร. (Driver Profile Record) ในระดับ TypeScript
+export interface DriverProfileRecord {
+  id: string;
+  plateNumber: string;             // ทะเบียนรถบัส (ใช้ทำ lookup ค้นหาโปรไฟล์)
+  driverName: string;              // ชื่อพนักงานขับรถ
+  driverPhone: string;             // เบอร์โทรศัพท์
+  factory: string;                 // สังกัดโรงงาน
+  shift: string;                   // กะทำงาน
+  photo: string | null;            // รูปถ่ายคนขับ / รถ (Base64)
+  createdAt: string;               // วันที่สร้าง (ISO String)
+  updatedAt: string;               // วันที่แก้ไขล่าสุด (ISO String)
+}
+
+
 // ไฟล์สำหรับเก็บข้อมูลสำรองเมื่อฐานข้อมูล PostgreSQL ใช้งานไม่ได้
 const FALLBACK_FILE_PATH = path.join(process.cwd(), 'db_fallback.json');
 
@@ -420,6 +434,176 @@ class JSONRolePermissionDatabase {
   }
 }
 
+// ไฟล์สำหรับเก็บข้อมูลโปรไฟล์ พขร. สำรอง
+const FALLBACK_PROFILES_FILE_PATH = path.join(process.cwd(), 'driver_profiles_fallback.json');
+
+// คลาสจัดการ Mock Driver Profiles Database ด้วยไฟล์ JSON
+class JSONDriverProfileDatabase {
+  private readData(): DriverProfileRecord[] {
+    try {
+      if (!fs.existsSync(FALLBACK_PROFILES_FILE_PATH)) {
+        fs.writeFileSync(FALLBACK_PROFILES_FILE_PATH, JSON.stringify([], null, 2), 'utf-8');
+        return [];
+      }
+      const fileContent = fs.readFileSync(FALLBACK_PROFILES_FILE_PATH, 'utf-8');
+      return JSON.parse(fileContent) as DriverProfileRecord[];
+    } catch (error) {
+      console.error('Error reading fallback JSON Driver Profiles DB:', error);
+      return [];
+    }
+  }
+
+  private writeData(data: DriverProfileRecord[]): void {
+    try {
+      fs.writeFileSync(FALLBACK_PROFILES_FILE_PATH, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (error) {
+      console.error('Error writing fallback JSON Driver Profiles DB:', error);
+    }
+  }
+
+  async findMany(args?: { where?: { plateNumber?: string } }): Promise<DriverProfileRecord[]> {
+    let records = this.readData();
+    if (args?.where) {
+      const { plateNumber } = args.where;
+      if (plateNumber) {
+        records = records.filter(r => r.plateNumber === plateNumber);
+      }
+    }
+    return records;
+  }
+
+  async findUnique(args: { where: { plateNumber?: string; id?: string } }): Promise<DriverProfileRecord | null> {
+    const records = this.readData();
+    if (args.where.id) {
+      return records.find(r => r.id === args.where.id) || null;
+    }
+    if (args.where.plateNumber) {
+      return records.find(r => r.plateNumber === args.where.plateNumber) || null;
+    }
+    return null;
+  }
+
+  async create(args: { data: Omit<DriverProfileRecord, 'id' | 'createdAt' | 'updatedAt'> }): Promise<DriverProfileRecord> {
+    const records = this.readData();
+    const now = new Date().toISOString();
+    const existingIndex = records.findIndex(r => r.plateNumber === args.data.plateNumber);
+    const newRecord: DriverProfileRecord = {
+      ...args.data,
+      id: crypto.randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    
+    if (existingIndex !== -1) {
+      records[existingIndex] = newRecord;
+    } else {
+      records.push(newRecord);
+    }
+    
+    this.writeData(records);
+    return newRecord;
+  }
+
+  async update(args: {
+    where: { plateNumber?: string; id?: string };
+    data: {
+      driverName?: string;
+      driverPhone?: string;
+      factory?: string;
+      shift?: string;
+      photo?: string | null;
+    };
+  }): Promise<DriverProfileRecord> {
+    const records = this.readData();
+    let index = -1;
+    if (args.where.id) {
+      index = records.findIndex(r => r.id === args.where.id);
+    } else if (args.where.plateNumber) {
+      index = records.findIndex(r => r.plateNumber === args.where.plateNumber);
+    }
+    
+    if (index === -1) {
+      const now = new Date().toISOString();
+      const newRecord: DriverProfileRecord = {
+        id: crypto.randomUUID(),
+        plateNumber: args.where.plateNumber || '',
+        driverName: args.data.driverName || '',
+        driverPhone: args.data.driverPhone || '',
+        factory: args.data.factory || '',
+        shift: args.data.shift || '',
+        photo: args.data.photo || null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      records.push(newRecord);
+      this.writeData(records);
+      return newRecord;
+    }
+    
+    const currentRecord = records[index];
+    const now = new Date().toISOString();
+    const updatedRecord: DriverProfileRecord = {
+      ...currentRecord,
+      ...args.data,
+      updatedAt: now,
+    };
+    records[index] = updatedRecord;
+    this.writeData(records);
+    return updatedRecord;
+  }
+
+  async upsert(args: {
+    where: { plateNumber: string };
+    update: {
+      driverName?: string;
+      driverPhone?: string;
+      factory?: string;
+      shift?: string;
+      photo?: string | null;
+    };
+    create: {
+      plateNumber: string;
+      driverName: string;
+      driverPhone: string;
+      factory: string;
+      shift: string;
+      photo?: string | null;
+    };
+  }): Promise<DriverProfileRecord> {
+    const records = this.readData();
+    const index = records.findIndex(r => r.plateNumber === args.where.plateNumber);
+    const now = new Date().toISOString();
+    
+    if (index === -1) {
+      const newRecord: DriverProfileRecord = {
+        id: crypto.randomUUID(),
+        plateNumber: args.create.plateNumber,
+        driverName: args.create.driverName,
+        driverPhone: args.create.driverPhone,
+        factory: args.create.factory,
+        shift: args.create.shift,
+        photo: args.create.photo || null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      records.push(newRecord);
+      this.writeData(records);
+      return newRecord;
+    } else {
+      const currentRecord = records[index];
+      const updatedRecord: DriverProfileRecord = {
+        ...currentRecord,
+        ...args.update,
+        updatedAt: now,
+      };
+      records[index] = updatedRecord;
+      this.writeData(records);
+      return updatedRecord;
+    }
+  }
+}
+
+
 // ตรวจสอบความถูกต้องและสร้างออบเจ็กต์เชื่อมต่อ
 let prisma: PrismaClient | null = null;
 let useJsonDatabase = false;
@@ -444,6 +628,8 @@ if (process.env.DATABASE_URL) {
 const jsonDb = new JSONDatabase();
 const jsonUserDb = new JSONUserDatabase();
 const jsonRolePermissionDb = new JSONRolePermissionDatabase();
+const jsonDriverProfileDb = new JSONDriverProfileDatabase();
+
 
 // ส่งออก Database Client ที่สามารถเรียกใช้รูปแบบเดียวกับ Prisma
 export const db = {
@@ -652,6 +838,79 @@ export const db = {
         console.error('Prisma connection error in rolePermission.update, switching to Fallback JSON Database.', err);
         useJsonDatabase = true;
         return jsonRolePermissionDb.update(args);
+      }
+    }
+  },
+
+  // ห่อหุ้มคำสั่งสำหรับ DriverProfile table
+  driverProfile: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    findMany: async (args?: any) => {
+      if (useJsonDatabase || !prisma) {
+        return jsonDriverProfileDb.findMany(args);
+      }
+      try {
+        return await prisma.driverProfile.findMany(args);
+      } catch (err) {
+        console.error('Prisma connection error in driverProfile.findMany, switching to Fallback JSON Database.', err);
+        useJsonDatabase = true;
+        return jsonDriverProfileDb.findMany(args);
+      }
+    },
+    
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    findUnique: async (args: any) => {
+      if (useJsonDatabase || !prisma) {
+        return jsonDriverProfileDb.findUnique(args);
+      }
+      try {
+        return await prisma.driverProfile.findUnique(args);
+      } catch (err) {
+        console.error('Prisma connection error in driverProfile.findUnique, switching to Fallback JSON Database.', err);
+        useJsonDatabase = true;
+        return jsonDriverProfileDb.findUnique(args);
+      }
+    },
+    
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    create: async (args: any) => {
+      if (useJsonDatabase || !prisma) {
+        return jsonDriverProfileDb.create(args);
+      }
+      try {
+        return await prisma.driverProfile.create(args);
+      } catch (err) {
+        console.error('Prisma connection error in driverProfile.create, switching to Fallback JSON Database.', err);
+        useJsonDatabase = true;
+        return jsonDriverProfileDb.create(args);
+      }
+    },
+    
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    update: async (args: any) => {
+      if (useJsonDatabase || !prisma) {
+        return jsonDriverProfileDb.update(args);
+      }
+      try {
+        return await prisma.driverProfile.update(args);
+      } catch (err) {
+        console.error('Prisma connection error in driverProfile.update, switching to Fallback JSON Database.', err);
+        useJsonDatabase = true;
+        return jsonDriverProfileDb.update(args);
+      }
+    },
+    
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    upsert: async (args: any) => {
+      if (useJsonDatabase || !prisma) {
+        return jsonDriverProfileDb.upsert(args);
+      }
+      try {
+        return await prisma.driverProfile.upsert(args);
+      } catch (err) {
+        console.error('Prisma connection error in driverProfile.upsert, switching to Fallback JSON Database.', err);
+        useJsonDatabase = true;
+        return jsonDriverProfileDb.upsert(args);
       }
     }
   }

@@ -193,7 +193,7 @@ async function sendTelegramNotification(inspection: TelegramInspectionInput) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { factory, plateNumber, driverName, driverPhone, shift, mileage, items, images } = body;
+    const { factory, plateNumber, driverName, driverPhone, shift, mileage, items, images, driverPhoto } = body;
 
     // ตรวจสอบข้อมูลขั้นต้น
     if (!factory || !plateNumber || !driverName || !driverPhone || !shift || mileage === undefined || !items) {
@@ -231,6 +231,33 @@ export async function POST(request: NextRequest) {
         repairedAt: null
       },
     });
+
+    // บันทึกหรืออัปเดตข้อมูลโปรไฟล์ พขร. (Driver Profile) ร่วมกับทะเบียนรถ
+    try {
+      await db.driverProfile.upsert({
+        where: {
+          plateNumber: plateNumber.trim(),
+        },
+        update: {
+          driverName,
+          driverPhone,
+          factory,
+          shift,
+          ...(driverPhoto !== undefined ? { photo: driverPhoto } : {}),
+        },
+        create: {
+          plateNumber: plateNumber.trim(),
+          driverName,
+          driverPhone,
+          factory,
+          shift,
+          photo: driverPhoto || null,
+        },
+      });
+    } catch (profileErr) {
+      // ดักจับข้อผิดพลาดแยกส่วน เพื่อไม่ให้ขัดขวางการส่งรายงานตรวจสภาพรถหลัก
+      console.error('Failed to auto-upsert driver profile:', profileErr);
+    }
 
     // ส่งการแจ้งเตือน Telegram หลังบันทึกข้อมูลเรียบร้อย (ทำงานแบบ Safe Call ไม่ขัดขวางการตอบกลับ พขร. หาก Telegram ล่ม)
     await sendTelegramNotification(newInspection);
