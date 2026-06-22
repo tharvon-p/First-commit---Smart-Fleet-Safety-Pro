@@ -73,6 +73,7 @@ export async function GET(request: NextRequest) {
 }
 
 interface TelegramInspectionInput {
+  id: string;
   plateNumber: string;
   factory: string;
   driverName: string;
@@ -82,6 +83,7 @@ interface TelegramInspectionInput {
   status: string;
   createdAt: Date | string;
   items: unknown;
+  images: unknown;
 }
 
 // ฟังก์ชันส่งการแจ้งเตือนผ่าน Telegram Bot API
@@ -151,6 +153,17 @@ async function sendTelegramNotification(inspection: TelegramInspectionInput) {
 
     // ลิงก์ดูข้อมูลในแดชบอร์ด
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://first-commit-smart-fleet-safety-pro.vercel.app';
+    
+    // แนบรูปภาพหาก พขร. มีการอัปโหลดหลักฐานเข้ามา
+    const images = (inspection.images as string[]) || [];
+    if (images.length > 0) {
+      messageLines.push(`\n🖼️ *รูปถ่ายหลักฐานแนบประกอบ (${images.length} ภาพ):*`);
+      images.forEach((_, idx) => {
+        const imageUrl = `${baseUrl}/api/inspections/${inspection.id}?index=${idx}`;
+        messageLines.push(`🔗 รูปภาพที่ ${idx + 1}: ${imageUrl}`);
+      });
+    }
+
     messageLines.push(`\n🔗 [คลิกเพื่อตรวจสอบข้อมูลบนระบบควบคุม](${baseUrl})`);
 
     const fullMessage = messageLines.join('\n');
@@ -167,7 +180,7 @@ async function sendTelegramNotification(inspection: TelegramInspectionInput) {
           chat_id: chatId,
           text: fullMessage,
           parse_mode: 'Markdown',
-          disable_web_page_preview: true,
+          disable_web_page_preview: false, // อนุญาตให้ Telegram โหลดพรีวิวรูปภาพเพื่อวิเคราะห์เบื้องต้นได้ทันที
         }),
       });
     }

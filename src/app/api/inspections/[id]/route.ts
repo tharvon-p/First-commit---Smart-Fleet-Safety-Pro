@@ -4,6 +4,83 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const { searchParams } = new URL(request.url);
+    const indexStr = searchParams.get('index');
+
+    if (!id) {
+      return new Response('ไม่พบรหัสอ้างอิงใบตรวจสภาพ', { status: 400 });
+    }
+
+    const inspection = await db.inspection.findUnique({
+      where: { id },
+    });
+
+    if (!inspection) {
+      return new Response('ไม่พบข้อมูลใบตรวจสภาพ', { status: 404 });
+    }
+
+    // หากระบุ index เพื่อดึงรูปถ่าย
+    if (indexStr !== null) {
+      const index = parseInt(indexStr, 10);
+      const images = inspection.images as string[];
+
+      if (isNaN(index) || index < 0 || index >= images.length) {
+        return new Response('ไม่พบรูปภาพในตำแหน่งที่ระบุ', { status: 400 });
+      }
+
+      const base64Data = images[index];
+
+      // สำหรับรูปที่เป็น SVG utf8 (จำลองในข้อมูล Seed)
+      if (base64Data.startsWith('data:image/svg+xml;utf8,')) {
+        const svgContent = decodeURIComponent(base64Data.substring('data:image/svg+xml;utf8,'.length));
+        return new Response(svgContent, {
+          headers: {
+            'Content-Type': 'image/svg+xml',
+            'Cache-Control': 'public, max-age=31536000, immutable',
+          },
+        });
+      }
+
+      // แยกเอา mime type และ base64 string ออกจาก data URI
+      const match = base64Data.match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) {
+        // หากรูปไม่ใช่ Base64 Data URL (เช่นเป็น URL ตรง) ให้ทำการรีไดเรกต์ไปที่รูปนั้นเลย
+        if (base64Data.startsWith('http')) {
+          return NextResponse.redirect(base64Data);
+        }
+        return new Response('รูปแบบไฟล์รูปภาพไม่ถูกต้อง', { status: 500 });
+      }
+
+      const contentType = match[1];
+      const base64String = match[2];
+      const buffer = Buffer.from(base64String, 'base64');
+
+      return new Response(buffer, {
+        headers: {
+          'Content-Type': contentType,
+          'Cache-Control': 'public, max-age=31536000, immutable',
+        },
+      });
+    }
+
+    // หากไม่ได้ระบุ index ให้ดึงข้อมูล JSON ตามปกติ
+    return NextResponse.json({
+      success: true,
+      data: inspection,
+      isFallback: db.isFallback
+    });
+  } catch (error) {
+    console.error('Error fetching inspection:', error);
+    return new Response('เกิดข้อผิดพลาดในการดึงข้อมูล', { status: 500 });
+  }
+}
+
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
