@@ -17,7 +17,8 @@ import {
   Calendar, 
   Eye, 
   Camera,
-  FileText
+  FileText,
+  Download
 } from 'lucide-react';
 import { 
   Card, 
@@ -179,6 +180,146 @@ export default function DashboardPage() {
     return defectedList;
   };
 
+  // ฟังก์ชันจัดฟอร์แมตวันที่ YYYY-MM-DD
+  const formatDateString = (date: Date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  // จัดการกดปุ่มปรีเซตวันที่คัดกรองด่วน
+  const handleApplyPreset = (preset: 'today' | 'yesterday' | 'this_month' | 'last_month') => {
+    const now = new Date();
+    let start = '';
+    let end = '';
+
+    if (preset === 'today') {
+      start = formatDateString(now);
+      end = formatDateString(now);
+    } else if (preset === 'yesterday') {
+      const yesterday = new Date();
+      yesterday.setDate(now.getDate() - 1);
+      start = formatDateString(yesterday);
+      end = formatDateString(yesterday);
+    } else if (preset === 'this_month') {
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      start = formatDateString(firstDay);
+      end = formatDateString(now);
+    } else if (preset === 'last_month') {
+      const firstDayLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastDayLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+      start = formatDateString(firstDayLastMonth);
+      end = formatDateString(lastDayLastMonth);
+    }
+
+    setStartDate(start);
+    setEndDate(end);
+  };
+
+  // ส่งออกข้อมูลในตารางเป็นไฟล์ CSV ภาษาไทย (UTF-8 BOM)
+  const handleExportCSV = () => {
+    if (inspections.length === 0) return;
+
+    const headers = [
+      'วัน-เวลาตรวจ',
+      'ทะเบียนรถบัส',
+      'สังกัดโรงงาน',
+      'พนักงานขับรถ',
+      'เบอร์โทรศัพท์',
+      'เลขไมล์สะสม (กม.)',
+      'จำนวนจุดชำรุด',
+      'จุดที่ชำรุด',
+      'ผลลัพธ์สถานะ',
+      'หมายเหตุช่าง'
+    ];
+
+    const rows = inspections.map(row => {
+      const defectedList = getDefectedItems(row.items as Record<string, boolean>);
+      const statusText = row.status;
+      const dateText = new Date(row.createdAt).toLocaleString('th-TH').replace(/,/g, '');
+      const defectsCount = defectedList.length;
+      const defectsStr = defectedList.join('; ');
+      const notesStr = (row.mechanicNotes || '').replace(/"/g, '""').replace(/\n/g, ' ');
+
+      return [
+        `"${dateText}"`,
+        `"${row.plateNumber}"`,
+        `"${row.factory}"`,
+        `"${row.driverName}"`,
+        `"${row.driverPhone}"`,
+        row.mileage,
+        defectsCount,
+        `"${defectsStr}"`,
+        `"${statusText}"`,
+        `"${notesStr}"`
+      ];
+    });
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(e => e.join(','))
+    ].join('\n');
+
+    const BOM = '\uFEFF';
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    
+    const timestamp = new Date().toISOString().slice(0, 10);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `thailux_safety_report_${timestamp}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // คำนวณสถิติสำหรับใช้งานในกราฟ
+  const chartStats = React.useMemo(() => {
+    const ready = inspections.filter(i => i.status === 'ปกติ' || i.status === 'ซ่อมเสร็จสิ้น').length;
+    const pending = inspections.filter(i => i.status === 'รอคิวซ่อม').length;
+    const suspended = inspections.filter(i => i.status === 'ระงับการวิ่ง').length;
+    const total = ready + pending + suspended;
+
+    const factories = ['KCE', 'สุริยัน', 'อมตะซิตี้', 'บางปู'];
+    const factoryCounts = factories.map(fac => ({
+      factory: fac,
+      count: inspections.filter(i => i.factory === fac).length
+    }));
+    const maxFactoryCount = Math.max(...factoryCounts.map(f => f.count), 1);
+
+    return {
+      ready,
+      pending,
+      suspended,
+      total,
+      factoryCounts,
+      maxFactoryCount
+    };
+  }, [inspections]);
+
+  // ฟังก์ชันจัดสลับฟิลเตอร์สถานะ
+  const handleToggleStatusFilter = (st: string) => {
+    setStatusFilter(statusFilter === st ? 'ทั้งหมด' : st);
+  };
+
+  // ค่าสำหรับวาด SVG Circle Donut (r=36 -> C = ~226.195)
+  const radius = 36;
+  const circumference = 2 * Math.PI * radius;
+  
+  const readyPct = chartStats.total > 0 ? (chartStats.ready / chartStats.total) : 0;
+  const pendingPct = chartStats.total > 0 ? (chartStats.pending / chartStats.total) : 0;
+  const suspendedPct = chartStats.total > 0 ? (chartStats.suspended / chartStats.total) : 0;
+
+  const dashReady = readyPct * circumference;
+  const dashPending = pendingPct * circumference;
+  const dashSuspended = suspendedPct * circumference;
+
+  const offsetReady = 0;
+  const offsetPending = -dashReady;
+  const offsetSuspended = -(dashReady + dashPending);
+
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
       
@@ -258,6 +399,191 @@ export default function DashboardPage() {
       </div>
 
       {/* ==========================================
+          ANALYTICS & CHARTS PANEL (แผงกราฟวิเคราะห์สถิติแบบโต้ตอบ)
+          ========================================== */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        {/* กราฟ Donut สัดส่วนสถานะ */}
+        <Card className="border border-slate-100 shadow-sm overflow-hidden hover:shadow-md transition-shadow duration-300">
+          <CardContent className="p-6 space-y-4">
+            <div>
+              <h4 className="font-extrabold text-sm text-slate-800 flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-900" />
+                สัดส่วนสถานะความปลอดภัย (Safety Status Distribution)
+              </h4>
+              <p className="text-[11px] text-slate-400 mt-1">คลิกที่ส่วนของกราฟหรือตำนานสีเพื่อฟิลเตอร์คัดกรองข้อมูลในตาราง</p>
+            </div>
+            
+            <div className="flex flex-col sm:flex-row justify-center items-center gap-8 py-2">
+              <div className="relative flex justify-center items-center shrink-0">
+                <svg viewBox="0 0 100 100" className="w-36 h-36 sm:w-40 sm:h-40">
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r={radius}
+                    fill="transparent"
+                    stroke="#f1f5f9"
+                    strokeWidth="10"
+                  />
+                  {dashReady > 0 && (
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r={radius}
+                      fill="transparent"
+                      stroke="#10b981"
+                      strokeWidth="10"
+                      strokeDasharray={`${dashReady} ${circumference}`}
+                      strokeDashoffset={offsetReady}
+                      transform="rotate(-90 50 50)"
+                      className={cn(
+                        "transition-all duration-300 hover:stroke-[12] cursor-pointer",
+                        statusFilter !== 'ทั้งหมด' && statusFilter !== 'ปกติ' && "opacity-35"
+                      )}
+                      onClick={() => handleToggleStatusFilter('ปกติ')}
+                    />
+                  )}
+                  {dashPending > 0 && (
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r={radius}
+                      fill="transparent"
+                      stroke="#f59e0b"
+                      strokeWidth="10"
+                      strokeDasharray={`${dashPending} ${circumference}`}
+                      strokeDashoffset={offsetPending}
+                      transform="rotate(-90 50 50)"
+                      className={cn(
+                        "transition-all duration-300 hover:stroke-[12] cursor-pointer",
+                        statusFilter !== 'ทั้งหมด' && statusFilter !== 'รอคิวซ่อม' && "opacity-35"
+                      )}
+                      onClick={() => handleToggleStatusFilter('รอคิวซ่อม')}
+                    />
+                  )}
+                  {dashSuspended > 0 && (
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r={radius}
+                      fill="transparent"
+                      stroke="#f43f5e"
+                      strokeWidth="10"
+                      strokeDasharray={`${dashSuspended} ${circumference}`}
+                      strokeDashoffset={offsetSuspended}
+                      transform="rotate(-90 50 50)"
+                      className={cn(
+                        "transition-all duration-300 hover:stroke-[12] cursor-pointer",
+                        statusFilter !== 'ทั้งหมด' && statusFilter !== 'ระงับการวิ่ง' && "opacity-35"
+                      )}
+                      onClick={() => handleToggleStatusFilter('ระงับการวิ่ง')}
+                    />
+                  )}
+                  <text x="50" y="47" textAnchor="middle" className="fill-slate-800 font-extrabold text-sm font-sans">
+                    {chartStats.total}
+                  </text>
+                  <text x="50" y="58" textAnchor="middle" className="fill-slate-400 font-bold text-[7px] font-sans uppercase tracking-wider">
+                    รายงานรวม
+                  </text>
+                </svg>
+              </div>
+              
+              <div className="flex flex-col gap-2 justify-center text-xs font-semibold w-full sm:w-auto">
+                <button 
+                  type="button"
+                  onClick={() => handleToggleStatusFilter('ปกติ')}
+                  className={cn(
+                    "flex items-center gap-2.5 px-3 py-2 rounded-xl transition-all text-left w-full cursor-pointer border border-transparent",
+                    statusFilter === 'ปกติ' ? "bg-emerald-50 border-emerald-250 text-emerald-800" : "hover:bg-slate-50 text-slate-600"
+                  )}
+                >
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+                  <span>ปกติ: <strong className="text-slate-800 ml-1">{chartStats.ready} คัน</strong></span>
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => handleToggleStatusFilter('รอคิวซ่อม')}
+                  className={cn(
+                    "flex items-center gap-2.5 px-3 py-2 rounded-xl transition-all text-left w-full cursor-pointer border border-transparent",
+                    statusFilter === 'รอคิวซ่อม' ? "bg-amber-50 border-amber-250 text-amber-800" : "hover:bg-slate-50 text-slate-600"
+                  )}
+                >
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
+                  <span>รอคิวซ่อม: <strong className="text-slate-800 ml-1">{chartStats.pending} คัน</strong></span>
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => handleToggleStatusFilter('ระงับการวิ่ง')}
+                  className={cn(
+                    "flex items-center gap-2.5 px-3 py-2 rounded-xl transition-all text-left w-full cursor-pointer border border-transparent",
+                    statusFilter === 'ระงับการวิ่ง' ? "bg-rose-50 border-rose-250 text-rose-800" : "hover:bg-slate-50 text-slate-600"
+                  )}
+                >
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0" />
+                  <span>ระงับการวิ่ง: <strong className="text-slate-800 ml-1">{chartStats.suspended} คัน</strong></span>
+                </button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* กราฟแท่งรายงานแยกตามสังกัดโรงงาน */}
+        <Card className="border border-slate-100 shadow-sm overflow-hidden hover:shadow-md transition-shadow duration-300">
+          <CardContent className="p-6 space-y-4">
+            <div>
+              <h4 className="font-extrabold text-sm text-slate-800 flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-900" />
+                สถิติตามสังกัดโรงงาน (Reports by Factory)
+              </h4>
+              <p className="text-[11px] text-slate-400 mt-1">คลิกที่แท่งกราฟของโรงงานเพื่อกรองข้อมูลในตาราง / คลิกซ้ำเพื่อล้างฟิลเตอร์</p>
+            </div>
+            
+            <div className="flex justify-around items-end h-32 pt-6 border-b border-slate-100">
+              {chartStats.factoryCounts.map((f) => {
+                const isSelected = factoryFilter === f.factory;
+                const isAnySelected = factoryFilter !== 'ทั้งหมด';
+                const heightPct = (f.count / chartStats.maxFactoryCount) * 80 + 5; // offset slightly
+
+                return (
+                  <div 
+                    key={f.factory} 
+                    onClick={() => setFactoryFilter(factoryFilter === f.factory ? 'ทั้งหมด' : f.factory)}
+                    className={cn(
+                      "flex flex-col items-center gap-2 cursor-pointer group flex-1 max-w-[80px] transition-all",
+                      isAnySelected && !isSelected && "opacity-45 hover:opacity-75"
+                    )}
+                  >
+                    <span className={cn(
+                      "text-[10px] font-extrabold text-slate-700 transition-transform group-hover:scale-105",
+                      isSelected && "text-blue-900 scale-110 font-black"
+                    )}>
+                      {f.count}
+                    </span>
+                    <div className="w-8 bg-slate-100 rounded-t-lg relative h-20 overflow-hidden flex items-end">
+                      <div 
+                        style={{ height: `${heightPct}%` }}
+                        className={cn(
+                          "w-full rounded-t-lg transition-all duration-300 bg-gradient-to-t from-blue-950 to-blue-600 shadow-sm",
+                          isSelected && "from-sky-700 to-sky-400"
+                        )}
+                      />
+                    </div>
+                    <span className={cn(
+                      "text-[10px] sm:text-xs font-bold text-slate-500 transition-colors",
+                      isSelected && "text-blue-900 font-extrabold"
+                    )}>
+                      {f.factory}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+      </div>
+
+      {/* ==========================================
           FILTER BAR (แถบตัวกรองและกล่องสืบค้นข้อมูล)
           ========================================== */}
       <Card>
@@ -316,32 +642,66 @@ export default function DashboardPage() {
             </div>
 
             {/* ตัวเลือกวันเริ่มและวันสิ้นสุด */}
-            <div className="flex items-center gap-1.5 border border-slate-200 px-3 py-2 rounded-xl bg-white col-span-1 lg:col-span-2">
-              <Calendar className="h-4 w-4 text-slate-400 shrink-0" />
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full text-xs text-slate-600 focus:outline-none bg-transparent cursor-pointer"
-              />
-              <span className="text-slate-300 px-1 text-xs">ถึง</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full text-xs text-slate-600 focus:outline-none bg-transparent cursor-pointer"
-              />
-              {(startDate || endDate) && (
+            <div className="flex flex-col gap-2 col-span-1 lg:col-span-2">
+              <div className="flex items-center gap-1.5 border border-slate-200 px-3 py-2 rounded-xl bg-white">
+                <Calendar className="h-4 w-4 text-slate-400 shrink-0" />
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full text-xs text-slate-600 focus:outline-none bg-transparent cursor-pointer font-bold"
+                />
+                <span className="text-slate-300 px-1 text-xs">ถึง</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full text-xs text-slate-600 focus:outline-none bg-transparent cursor-pointer font-bold"
+                />
+                {(startDate || endDate) && (
+                  <button
+                    onClick={() => {
+                      setStartDate('');
+                      setEndDate('');
+                    }}
+                    className="text-xs text-rose-500 font-bold hover:underline ml-2 cursor-pointer"
+                  >
+                    เคลียร์
+                  </button>
+                )}
+              </div>
+              
+              {/* ปรีเซตวันที่กรองด่วน */}
+              <div className="flex flex-wrap gap-1.5">
                 <button
-                  onClick={() => {
-                    setStartDate('');
-                    setEndDate('');
-                  }}
-                  className="text-xs text-rose-500 font-bold hover:underline ml-2 cursor-pointer"
+                  type="button"
+                  onClick={() => handleApplyPreset('today')}
+                  className="text-[10px] font-bold px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 transition-all cursor-pointer"
                 >
-                  เคลียร์
+                  วันนี้
                 </button>
-              )}
+                <button
+                  type="button"
+                  onClick={() => handleApplyPreset('yesterday')}
+                  className="text-[10px] font-bold px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 transition-all cursor-pointer"
+                >
+                  เมื่อวาน
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApplyPreset('this_month')}
+                  className="text-[10px] font-bold px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 transition-all cursor-pointer"
+                >
+                  เดือนนี้
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApplyPreset('last_month')}
+                  className="text-[10px] font-bold px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 transition-all cursor-pointer"
+                >
+                  เดือนที่แล้ว
+                </button>
+              </div>
             </div>
 
           </div>
@@ -358,6 +718,16 @@ export default function DashboardPage() {
             <h3 className="text-base font-extrabold text-slate-800">ตารางข้อมูลสภาพบัส</h3>
           </div>
           <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportCSV}
+              className="flex items-center gap-1.5 rounded-lg text-xs text-emerald-700 border-emerald-600/30 hover:bg-emerald-50 cursor-pointer font-bold"
+              disabled={inspections.length === 0}
+            >
+              <Download className="h-3.5 w-3.5" />
+              ส่งออก Excel (.CSV)
+            </Button>
             <Button
               variant="outline"
               size="sm"

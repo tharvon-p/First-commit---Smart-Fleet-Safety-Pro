@@ -10,10 +10,18 @@ const DEFAULT_PERMISSIONS = [
   { role: 'OFFICE', allowedPages: '/,/inspection,/reports,/maintenance' }
 ];
 
+interface PermissionResponseItem {
+  id: string;
+  role: string;
+  allowedPages: string;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
 // GET: ดึงรายการสิทธิ์การใช้งานของทุก Role (หากไม่มี จะทำ Auto-seed สิทธิ์ตั้งต้นให้อัตโนมัติ)
 export async function GET() {
   try {
-    let permissions: any[] = await db.rolePermission.findMany();
+    let permissions: PermissionResponseItem[] = (await db.rolePermission.findMany()) as PermissionResponseItem[];
     
     // หากข้อมูลในฐานข้อมูลยังไม่มีสิทธิ์ ให้ทำ Auto-seed
     if (permissions.length === 0) {
