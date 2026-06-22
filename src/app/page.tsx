@@ -36,6 +36,21 @@ export default function DashboardPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [mechanicNotes, setMechanicNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [userRole, setUserRole] = useState<string>('OFFICE');
+
+  useEffect(() => {
+    const userStr = localStorage.getItem('thailux_session_user');
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr);
+        setTimeout(() => {
+          setUserRole(u.role || 'OFFICE');
+        }, 0);
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
 
   // สเตตสำหรับพรีวิวรูปภาพ
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -462,7 +477,7 @@ export default function DashboardPage() {
                             className="flex items-center gap-1.5 text-xs py-1 rounded-lg"
                           >
                             <Eye className="h-3.5 w-3.5" />
-                            จัดการ
+                            {userRole === 'OFFICE' ? 'ดูรายละเอียด' : 'จัดการ'}
                           </Button>
                         </div>
                       </td>
@@ -586,6 +601,10 @@ export default function DashboardPage() {
                       <p className="text-slate-700 text-xs mt-0.5">{selectedInspection.mechanicNotes}</p>
                     </div>
                   )}
+                </div>
+              ) : userRole === 'OFFICE' ? (
+                <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl text-xs text-slate-500 font-semibold text-center">
+                  ℹ️ ระดับสิทธิ์ของคุณคือเจ้าหน้าที่สำนักงาน (ดูข้อมูลภาพรวมได้เท่านั้น)
                 </div>
               ) : (
                 <>

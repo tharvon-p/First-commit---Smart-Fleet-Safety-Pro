@@ -45,3 +45,14 @@ model Inspection {
   @@index([plateNumber])
   @@index([status])
 }
+
+// โมเดลสำหรับบัญชีผู้ใช้งานและสิทธิ์ความปลอดภัย (User & Roles)
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  password  String   // รหัสผ่านที่เข้ารหัสแล้ว (SHA-256)
+  name      String   // ชื่อพนักงาน
+  role      String   // บทบาทสิทธิ์การใช้งาน (ADMIN, MECHANIC, OFFICE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

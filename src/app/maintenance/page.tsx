@@ -37,10 +37,31 @@ export default function MaintenanceLogPage() {
   const [mechanicNotes, setMechanicNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const [userRole, setUserRole] = useState<string>('OFFICE');
+
   // สเตตสำหรับพรีวิวรูปภาพ
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewImageUrl, setPreviewImageUrl] = useState('');
   const [previewTitle, setPreviewTitle] = useState('');
+
+  // โหลด Role ผู้ใช้งานจาก localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('thailux_session_user');
+      if (stored) {
+        try {
+          const user = JSON.parse(stored);
+          if (user && user.role) {
+            setTimeout(() => {
+              setUserRole(user.role);
+            }, 0);
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+  }, []);
 
   const handleOpenImageModal = (imgUrl: string, plateNumber: string) => {
     setPreviewImageUrl(imgUrl);
@@ -108,6 +129,7 @@ export default function MaintenanceLogPage() {
 
   // เปิดแบบฟอร์มซ่อม
   const handleOpenRepair = (job: InspectionRecord) => {
+    if (userRole === 'OFFICE') return;
     setSelectedJob(job);
     setMechanicNotes(job.mechanicNotes || '');
     setIsModalOpen(true);
@@ -332,7 +354,7 @@ export default function MaintenanceLogPage() {
                   )}
 
                   {/* ปุ่มกดจัดการซ่อมแซม */}
-                  {job.status !== 'ซ่อมเสร็จสิ้น' && (
+                  {job.status !== 'ซ่อมเสร็จสิ้น' && userRole !== 'OFFICE' && (
                     <Button
                       variant="primary"
                       onClick={() => handleOpenRepair(job)}

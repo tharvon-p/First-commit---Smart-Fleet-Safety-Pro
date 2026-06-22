@@ -1,0 +1,417 @@
+// src/app/users/page.tsx
+// หน้าจอสำหรับจัดการบัญชีผู้ใช้งานและบทบาทหน้าที่ (User Management Screen - ADMIN Only)
+
+'use client';
+
+import React, { useState, useEffect, useCallback } from 'react';
+import { 
+  Users, 
+  UserPlus, 
+  Edit, 
+  Trash2, 
+  RefreshCw, 
+  ShieldCheck, 
+  User
+} from 'lucide-react';
+import { 
+  Card, 
+  Button, 
+  Dialog 
+} from '@/components/ui';
+import { cn } from '@/lib/utils';
+
+interface UserItem {
+  id: string;
+  username: string;
+  name: string;
+  role: string;
+  createdAt: string;
+}
+
+export default function UserManagementPage() {
+  const [users, setUsers] = useState<UserItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentAdminId, setCurrentAdminId] = useState<string>('');
+
+  // ฟอร์มจัดการผู้ใช้
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<UserItem | null>(null);
+  const [username, setUsername] = useState('');
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('OFFICE');
+  const [password, setPassword] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // ดึงข้อมูลผู้ใช้ปัจจุบันที่ล็อกอิน
+  useEffect(() => {
+    const userStr = localStorage.getItem('thailux_session_user');
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr);
+        setTimeout(() => {
+          setCurrentAdminId(u.id || '');
+        }, 0);
+      } catch (e) {
+        console.error('Error parsing user session:', e);
+      }
+    }
+  }, []);
+
+  // โหลดรายชื่อผู้ใช้งานทั้งหมด
+  const fetchUsers = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/users');
+      const data = await res.json();
+      if (data.success) {
+        setUsers(data.data);
+      }
+    } catch (err) {
+      console.error('Error fetching users:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchUsers();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchUsers]);
+
+  // เปิดฟอร์มเพิ่มผู้ใช้
+  const handleOpenAdd = () => {
+    setEditingUser(null);
+    setUsername('');
+    setName('');
+    setRole('OFFICE');
+    setPassword('');
+    setErrorMsg('');
+    setIsFormOpen(true);
+  };
+
+  // เปิดฟอร์มแก้ไขผู้ใช้
+  const handleOpenEdit = (u: UserItem) => {
+    setEditingUser(u);
+    setUsername(u.username);
+    setName(u.name);
+    setRole(u.role);
+    setPassword(''); // ว่างไว้สำหรับการแก้ไข (กรอกเฉพาะตอนจะเปลี่ยนรหัส)
+    setErrorMsg('');
+    setIsFormOpen(true);
+  };
+
+  // บันทึกฟอร์ม (เพิ่ม/แก้ไข)
+  const handleSaveUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!username.trim() || !name.trim() || !role) {
+      setErrorMsg('กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน');
+      return;
+    }
+
+    if (!editingUser && !password) {
+      setErrorMsg('กรุณากรอกรหัสผ่านสำหรับบัญชีใหม่');
+      return;
+    }
+
+    setSaving(true);
+    setErrorMsg('');
+
+    const payload = {
+      username,
+      name,
+      role,
+      password: password || undefined // ส่งไปเฉพาะตอนมีการแก้ไขรหัสผ่าน
+    };
+
+    try {
+      const url = editingUser ? `/api/users/${editingUser.id}` : '/api/users';
+      const method = editingUser ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setIsFormOpen(false);
+        fetchUsers(); // โหลดรายชื่อใหม่
+      } else {
+        setErrorMsg(data.message || 'บันทึกข้อมูลไม่สำเร็จ');
+      }
+    } catch (err) {
+      console.error(err);
+      setErrorMsg('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ลบบัญชีผู้ใช้
+  const handleDeleteUser = async (u: UserItem) => {
+    if (u.id === currentAdminId) {
+      alert('ไม่สามารถลบบัญชีที่คุณกำลังใช้งานเข้าสู่ระบบอยู่ได้');
+      return;
+    }
+
+    if (!confirm(`คุณต้องการลบบัญชีผู้ใช้งาน "${u.name}" (${u.username}) ใช่หรือไม่?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/users/${u.id}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchUsers();
+      } else {
+        alert(data.message || 'ลบบัญชีผู้ใช้ไม่สำเร็จ');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+    }
+  };
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-300">
+      
+      {/* Header หน้าจอ */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-extrabold text-slate-800 tracking-tight flex items-center gap-2.5">
+            <Users className="text-blue-900 h-6.5 w-6.5" />
+            จัดการบัญชีและกำหนดสิทธิ์ผู้ใช้งาน
+          </h2>
+          <p className="text-xs text-slate-500 mt-1">เพิ่ม แก้ไข หรือลบบัญชีผู้ใช้พร้อมกำหนดสิทธิ์เข้าดูหน้าจอแต่ละส่วนของออฟฟิศ</p>
+        </div>
+
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={fetchUsers}
+            className="flex items-center gap-2 rounded-lg hover:bg-slate-100"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+            รีเฟรชข้อมูล
+          </Button>
+
+          <Button 
+            variant="primary" 
+            size="sm" 
+            onClick={handleOpenAdd}
+            className="flex items-center gap-2 rounded-lg bg-blue-950 hover:bg-blue-900 text-white shadow-sm border-none"
+          >
+            <UserPlus className="h-4 w-4" />
+            เพิ่มผู้ใช้งานใหม่
+          </Button>
+        </div>
+      </div>
+
+      {/* ตารางแสดงข้อมูลผู้ใช้งาน */}
+      <Card className="border border-slate-100 shadow-sm overflow-hidden rounded-3xl">
+        <div className="overflow-x-auto">
+          {loading && users.length === 0 ? (
+            <div className="py-20 text-center text-slate-400">
+              <RefreshCw className="h-8 w-8 animate-spin mx-auto text-blue-900 mb-4" />
+              กำลังโหลดข้อมูลผู้ใช้งาน...
+            </div>
+          ) : users.length === 0 ? (
+            <div className="py-20 text-center text-slate-400 font-medium">
+              📭 ไม่พบรายชื่อผู้ใช้งานในระบบ
+            </div>
+          ) : (
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  <th className="px-6 py-4">รายชื่อพนักงาน</th>
+                  <th className="px-6 py-4">ชื่อผู้ใช้งาน (Username)</th>
+                  <th className="px-6 py-4">ระดับสิทธิ์ (Role)</th>
+                  <th className="px-6 py-4">วันที่ลงทะเบียน</th>
+                  <th className="px-6 py-4 text-center">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white text-sm">
+                {users.map((u) => (
+                  <tr key={u.id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="px-6 py-4.5 whitespace-nowrap font-bold text-slate-800">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500 shadow-inner">
+                          {u.name.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-700">{u.name}</p>
+                          {u.id === currentAdminId && (
+                            <span className="text-[10px] text-blue-600 font-bold block">(บัญชีของคุณ)</span>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4.5 whitespace-nowrap font-mono text-slate-600">
+                      {u.username}
+                    </td>
+                    <td className="px-6 py-4.5 whitespace-nowrap">
+                      <span className={cn(
+                        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold border shadow-sm",
+                        u.role === 'ADMIN' && "bg-rose-50 border-rose-200 text-rose-700",
+                        u.role === 'MECHANIC' && "bg-amber-50 border-amber-200 text-amber-700",
+                        u.role === 'OFFICE' && "bg-sky-50 border-sky-200 text-sky-700"
+                      )}>
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                        {u.role === 'ADMIN' && 'ADMIN (ผู้ดูแลระบบ)'}
+                        {u.role === 'MECHANIC' && 'MECHANIC (ช่างซ่อม)'}
+                        {u.role === 'OFFICE' && 'OFFICE (สำนักงาน)'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4.5 whitespace-nowrap text-slate-500 font-medium">
+                      {new Date(u.createdAt).toLocaleDateString('th-TH', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: '2-digit',
+                      })}
+                    </td>
+                    <td className="px-6 py-4.5 whitespace-nowrap text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleOpenEdit(u)}
+                          className="flex items-center gap-1.5 text-xs py-1 rounded-lg hover:bg-slate-100"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                          แก้ไข
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDeleteUser(u)}
+                          className={cn(
+                            "flex items-center gap-1.5 text-xs py-1 rounded-lg border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700",
+                            u.id === currentAdminId && "opacity-50 pointer-events-none"
+                          )}
+                          disabled={u.id === currentAdminId}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          ลบ
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </Card>
+
+      {/* ==========================================
+          DIALOG / MODAL FOR ADD/EDIT USER (ป๊อปอัปเพิ่ม/แก้ไขบัญชี)
+          ========================================== */}
+      <Dialog
+        isOpen={isFormOpen}
+        onClose={() => setIsFormOpen(false)}
+        title={editingUser ? `แก้ไขบัญชีผู้ใช้: ${editingUser.username}` : 'เพิ่มผู้ใช้งานในระบบรายใหม่'}
+      >
+        <form onSubmit={handleSaveUser} className="space-y-4 font-sans text-left">
+          
+          {errorMsg && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs font-semibold">
+              ⚠️ {errorMsg}
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+              ชื่อผู้ใช้งาน (Username)
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                <User className="h-4 w-4" />
+              </div>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                disabled={!!editingUser}
+                className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 text-slate-800 transition-all font-medium placeholder-slate-400 disabled:opacity-50"
+                placeholder="ภาษาอังกฤษ (เช่น somchai.r)"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+              ชื่อ-นามสกุลพนักงาน
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 text-slate-800 transition-all font-medium placeholder-slate-400"
+              placeholder="กรอกชื่อและนามสกุลจริงภาษาไทย"
+              required
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+              ระดับสิทธิ์การเข้าถึง (Role)
+            </label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 text-slate-800 transition-all font-medium"
+            >
+              <option value="OFFICE">OFFICE (เจ้าหน้าที่สำนักงาน - ดูบอร์ด/รายงาน)</option>
+              <option value="MECHANIC">MECHANIC (ช่างซ่อมบำรุง - ดูบอร์ด/บันทึกซ่อม)</option>
+              <option value="ADMIN">ADMIN (ผู้ดูแลระบบสูงสุด - เข้าได้ทุกส่วน/จัดการผู้ใช้)</option>
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+              รหัสผ่าน (Password)
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 text-slate-800 transition-all font-medium placeholder-slate-400"
+              placeholder={editingUser ? "เว้นว่างหากไม่ต้องการเปลี่ยนรหัสผ่าน" : "กำหนดรหัสผ่าน (อย่างน้อย 4 ตัว)"}
+              required={!editingUser}
+            />
+          </div>
+
+          <div className="flex gap-3 pt-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsFormOpen(false)}
+              className="flex-1 text-xs rounded-xl"
+              disabled={saving}
+            >
+              ยกเลิก
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              className="flex-1 text-xs rounded-xl bg-blue-950 hover:bg-blue-900 text-white shadow-sm border-none"
+              disabled={saving}
+            >
+              {saving ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
+            </Button>
+          </div>
+
+        </form>
+      </Dialog>
+
+    </div>
+  );
+}

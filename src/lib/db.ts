@@ -5,6 +5,7 @@
 import { PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 
 // กำหนดโครงสร้างข้อมูลการตรวจบัส (Inspection Record) ในระดับ TypeScript
 export interface InspectionRecord {
@@ -21,6 +22,17 @@ export interface InspectionRecord {
   mechanicNotes: string | null;    // หมายเหตุจากช่าง
   repairedAt: string | null;       // วันที่ทำการซ่อมเสร็จ (ISO String)
   createdAt: string;               // วันที่สร้างรายงาน (ISO String)
+  updatedAt: string;               // วันที่แก้ไขล่าสุด (ISO String)
+}
+
+// กำหนดโครงสร้างข้อมูลบัญชีผู้ใช้ (User Record) ในระดับ TypeScript
+export interface UserRecord {
+  id: string;
+  username: string;
+  password: string;                // รหัสผ่านที่แฮชแล้ว (SHA-256)
+  name: string;                    // ชื่อพนักงาน
+  role: string;                    // ADMIN, MECHANIC, OFFICE
+  createdAt: string;               // วันที่สร้างบัญชี (ISO String)
   updatedAt: string;               // วันที่แก้ไขล่าสุด (ISO String)
 }
 
@@ -201,6 +213,108 @@ class JSONDatabase {
   }
 }
 
+// ไฟล์สำหรับเก็บข้อมูลบัญชีผู้ใช้งานสำรอง
+const FALLBACK_USERS_FILE_PATH = path.join(process.cwd(), 'users_fallback.json');
+
+// คลาสจัดการ Mock User Database ด้วยไฟล์ JSON
+class JSONUserDatabase {
+  private readData(): UserRecord[] {
+    try {
+      if (!fs.existsSync(FALLBACK_USERS_FILE_PATH)) {
+        fs.writeFileSync(FALLBACK_USERS_FILE_PATH, JSON.stringify([], null, 2), 'utf-8');
+        return [];
+      }
+      const fileContent = fs.readFileSync(FALLBACK_USERS_FILE_PATH, 'utf-8');
+      return JSON.parse(fileContent) as UserRecord[];
+    } catch (error) {
+      console.error('Error reading fallback JSON Users DB:', error);
+      return [];
+    }
+  }
+
+  private writeData(data: UserRecord[]): void {
+    try {
+      fs.writeFileSync(FALLBACK_USERS_FILE_PATH, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (error) {
+      console.error('Error writing fallback JSON Users DB:', error);
+    }
+  }
+
+  async findMany(args?: { where?: { username?: string } }): Promise<UserRecord[]> {
+    let records = this.readData();
+    if (args?.where) {
+      const { username } = args.where;
+      if (username) {
+        records = records.filter(r => r.username === username);
+      }
+    }
+    return records;
+  }
+
+  async findUnique(args: { where: { id?: string; username?: string } }): Promise<UserRecord | null> {
+    const records = this.readData();
+    if (args.where.id) {
+      return records.find(r => r.id === args.where.id) || null;
+    }
+    if (args.where.username) {
+      return records.find(r => r.username === args.where.username) || null;
+    }
+    return null;
+  }
+
+  async create(args: { data: Omit<UserRecord, 'id' | 'createdAt' | 'updatedAt'> }): Promise<UserRecord> {
+    const records = this.readData();
+    const now = new Date().toISOString();
+    const newRecord: UserRecord = {
+      ...args.data,
+      id: crypto.randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    records.push(newRecord);
+    this.writeData(records);
+    return newRecord;
+  }
+
+  async update(args: {
+    where: { id: string };
+    data: {
+      username?: string;
+      password?: string;
+      name?: string;
+      role?: string;
+    };
+  }): Promise<UserRecord> {
+    const records = this.readData();
+    const index = records.findIndex(r => r.id === args.where.id);
+    if (index === -1) {
+      throw new Error(`User with id ${args.where.id} not found`);
+    }
+    const currentRecord = records[index];
+    const now = new Date().toISOString();
+    const updatedRecord: UserRecord = {
+      ...currentRecord,
+      ...args.data,
+      updatedAt: now,
+    };
+    records[index] = updatedRecord;
+    this.writeData(records);
+    return updatedRecord;
+  }
+
+  async delete(args: { where: { id: string } }): Promise<UserRecord> {
+    const records = this.readData();
+    const index = records.findIndex(r => r.id === args.where.id);
+    if (index === -1) {
+      throw new Error(`User with id ${args.where.id} not found`);
+    }
+    const deletedRecord = records[index];
+    records.splice(index, 1);
+    this.writeData(records);
+    return deletedRecord;
+  }
+}
+
 // ตรวจสอบความถูกต้องและสร้างออบเจ็กต์เชื่อมต่อ
 let prisma: PrismaClient | null = null;
 let useJsonDatabase = false;
@@ -223,6 +337,7 @@ if (process.env.DATABASE_URL) {
 
 // สร้างคลาส Mock Database Wrapper
 const jsonDb = new JSONDatabase();
+const jsonUserDb = new JSONUserDatabase();
 
 // ส่งออก Database Client ที่สามารถเรียกใช้รูปแบบเดียวกับ Prisma
 export const db = {
@@ -299,6 +414,79 @@ export const db = {
         console.error('Prisma connection error in count, switching to Fallback JSON Database.', err);
         useJsonDatabase = true;
         return jsonDb.count(args);
+      }
+    }
+  },
+
+  // ห่อหุ้มคำสั่งสำหรับ User table
+  user: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    findMany: async (args?: any) => {
+      if (useJsonDatabase || !prisma) {
+        return jsonUserDb.findMany(args);
+      }
+      try {
+        return await prisma.user.findMany(args);
+      } catch (err) {
+        console.error('Prisma connection error in user.findMany, switching to Fallback JSON Database.', err);
+        useJsonDatabase = true;
+        return jsonUserDb.findMany(args);
+      }
+    },
+    
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    findUnique: async (args: any) => {
+      if (useJsonDatabase || !prisma) {
+        return jsonUserDb.findUnique(args);
+      }
+      try {
+        return await prisma.user.findUnique(args);
+      } catch (err) {
+        console.error('Prisma connection error in user.findUnique, switching to Fallback JSON Database.', err);
+        useJsonDatabase = true;
+        return jsonUserDb.findUnique(args);
+      }
+    },
+    
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    create: async (args: any) => {
+      if (useJsonDatabase || !prisma) {
+        return jsonUserDb.create(args);
+      }
+      try {
+        return await prisma.user.create(args);
+      } catch (err) {
+        console.error('Prisma connection error in user.create, switching to Fallback JSON Database.', err);
+        useJsonDatabase = true;
+        return jsonUserDb.create(args);
+      }
+    },
+    
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    update: async (args: any) => {
+      if (useJsonDatabase || !prisma) {
+        return jsonUserDb.update(args);
+      }
+      try {
+        return await prisma.user.update(args);
+      } catch (err) {
+        console.error('Prisma connection error in user.update, switching to Fallback JSON Database.', err);
+        useJsonDatabase = true;
+        return jsonUserDb.update(args);
+      }
+    },
+    
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete: async (args: any) => {
+      if (useJsonDatabase || !prisma) {
+        return jsonUserDb.delete(args);
+      }
+      try {
+        return await prisma.user.delete(args);
+      } catch (err) {
+        console.error('Prisma connection error in user.delete, switching to Fallback JSON Database.', err);
+        useJsonDatabase = true;
+        return jsonUserDb.delete(args);
       }
     }
   }

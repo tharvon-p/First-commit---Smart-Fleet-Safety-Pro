@@ -20,7 +20,8 @@ import {
   Database,
   Lock,
   User,
-  LogOut
+  LogOut,
+  Users
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -36,6 +37,12 @@ export default function AppLayout({ children }: AppLayoutProps) {
   // สเตตสำหรับการล็อกอินและการรักษาความปลอดภัย
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [userProfile, setUserProfile] = useState<{
+    id: string;
+    username: string;
+    name: string;
+    role: string;
+  } | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
@@ -57,8 +64,14 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
       // 2. ตรวจสอบเซสชันการล็อกอินจาก localStorage
       const token = localStorage.getItem('thailux_session_token');
-      if (token === 'session_thailux_safety_token_approved') {
+      const userStr = localStorage.getItem('thailux_session_user');
+      if (token === 'session_thailux_safety_token_approved' && userStr) {
         setIsAuthenticated(true);
+        try {
+          setUserProfile(JSON.parse(userStr));
+        } catch {
+          // ignore parsing error
+        }
       }
       setIsCheckingAuth(false);
     }
@@ -88,6 +101,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
       if (response.ok && data.success) {
         localStorage.setItem('thailux_session_token', data.token);
+        localStorage.setItem('thailux_session_user', JSON.stringify(data.user));
+        setUserProfile(data.user);
         setIsAuthenticated(true);
         setLoginError('');
       } else {
@@ -103,40 +118,81 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   const handleLogout = () => {
     localStorage.removeItem('thailux_session_token');
+    localStorage.removeItem('thailux_session_user');
     setIsAuthenticated(false);
+    setUserProfile(null);
     setUsername('');
     setPassword('');
   };
 
-  // รายการเมนูหลักตามข้อกำหนด
-  const menuItems = [
-    {
-      name: '📊 แดชบอร์ดภาพรวม',
-      path: '/',
-      icon: LayoutDashboard,
-      desc: 'สถิติและสถานะรถบัสเรียลไทม์'
-    },
-    {
-      name: '📋 ตรวจสภาพรถประจำวัน',
-      path: '/inspection',
-      icon: ClipboardCheck,
-      desc: 'ฟอร์มเช็ก 21 จุด (สำหรับคนขับ)'
-    },
-    {
-      name: '🛠️ ประวัติการซ่อมบำรุง',
-      path: '/maintenance',
-      icon: Wrench,
-      desc: 'ประวัติและข้อมูลจากช่างซ่อม'
-    },
-    {
-      name: '📑 ออกรายงาน PDF',
-      path: '/reports',
-      icon: FileText,
-      desc: 'รายงาน Matrix 31 วันมาตรฐาน'
+  // ดึงรายการเมนูที่กรองตามสิทธิ์ของผู้ใช้
+  const getFilteredMenuItems = () => {
+    const role = userProfile?.role;
+    
+    const allItems = [
+      {
+        name: '📊 แดชบอร์ดภาพรวม',
+        path: '/',
+        icon: LayoutDashboard,
+        desc: 'สถิติและสถานะรถบัสเรียลไทม์',
+        allowedRoles: ['ADMIN', 'MECHANIC', 'OFFICE']
+      },
+      {
+        name: '📋 ตรวจสภาพรถประจำวัน',
+        path: '/inspection',
+        icon: ClipboardCheck,
+        desc: 'ฟอร์มเช็ก 21 จุด (สำหรับคนขับ)',
+        allowedRoles: ['ADMIN', 'MECHANIC', 'OFFICE']
+      },
+      {
+        name: '🛠️ ประวัติการซ่อมบำรุง',
+        path: '/maintenance',
+        icon: Wrench,
+        desc: 'ประวัติและข้อมูลจากช่างซ่อม',
+        allowedRoles: ['ADMIN', 'MECHANIC', 'OFFICE']
+      },
+      {
+        name: '📑 ออกรายงาน PDF',
+        path: '/reports',
+        icon: FileText,
+        desc: 'รายงาน Matrix 31 วันมาตรฐาน',
+        allowedRoles: ['ADMIN', 'OFFICE']
+      },
+      {
+        name: '👥 จัดการผู้ใช้งาน',
+        path: '/users',
+        icon: Users,
+        allowedRoles: ['ADMIN'],
+        desc: 'จัดการบัญชีและกำหนดสิทธิ์พนักงาน'
+      }
+    ];
+
+    if (!role) return allItems.filter(item => item.path === '/inspection');
+    return allItems.filter(item => item.allowedRoles.includes(role));
+  };
+
+  // ตรวจสอบความถูกต้องของสิทธิ์การเข้าถึงเส้นทางปัจจุบัน (Route Authorization Guard)
+  const isRouteAllowed = () => {
+    if (pathname === '/inspection') return true;
+    
+    const role = userProfile?.role;
+    if (!role) return false;
+    
+    if (role === 'ADMIN') return true;
+    
+    if (role === 'MECHANIC') {
+      return ['/', '/maintenance'].includes(pathname);
     }
-  ];
+    
+    if (role === 'OFFICE') {
+      return ['/', '/reports', '/maintenance'].includes(pathname);
+    }
+    
+    return false;
+  };
 
   const isDriverView = pathname === '/inspection';
+  const hasAccess = isRouteAllowed();
 
   if (isDriverView) {
     return (
@@ -285,6 +341,52 @@ export default function AppLayout({ children }: AppLayoutProps) {
       </div>
     );
   }
+
+  if (isAuthenticated && !hasAccess) {
+    return (
+      <div className="min-h-screen bg-[#f8fafc] flex flex-col font-sans">
+        <header className="bg-blue-950 text-white px-4 py-3 flex items-center justify-between shadow-md border-b border-blue-900/30 sticky top-0 z-40">
+          <div className="flex items-center gap-2.5 mx-auto">
+            <div className="bg-red-700 p-2 rounded-xl text-white shadow-sm shadow-red-700/20">
+              <Bus className="h-5 w-5" />
+            </div>
+            <div className="text-center">
+              <h1 className="font-bold text-sm leading-tight tracking-tight">Smart Fleet Safety Pro</h1>
+              <p className="text-[10px] text-slate-300">ระบบตรวจสภาพรถบัสประจำวัน - Thailux</p>
+            </div>
+          </div>
+        </header>
+
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-slate-100 shadow-xl text-center space-y-6">
+            <div className="mx-auto w-16 h-16 bg-rose-50 border border-rose-100 rounded-full flex items-center justify-center text-rose-600">
+              <AlertTriangle className="h-8 w-8" />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-lg font-bold text-slate-800">ไม่มีสิทธิ์เข้าถึงหน้าจอนี้</h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                บัญชีผู้ใช้งานของคุณ ({userProfile?.name}) ไม่มีระดับสิทธิ์การเข้าใช้งานที่อนุญาตสำหรับหน้าจอ `{pathname}` หากต้องการข้อมูลสิทธิ์การเข้าใช้งานเพิ่มเติม กรุณาติดต่อผู้ดูแลระบบ
+              </p>
+            </div>
+            <div className="pt-2 flex gap-3">
+              <button
+                onClick={handleLogout}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold text-xs transition-all cursor-pointer"
+              >
+                ออกจากระบบ
+              </button>
+              <Link
+                href={userProfile?.role === 'MECHANIC' ? '/maintenance' : '/'}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-blue-950 hover:bg-blue-900 text-white font-bold text-xs transition-all flex items-center justify-center cursor-pointer"
+              >
+                กลับหน้าหลัก
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="min-h-screen bg-[#f8fafc] flex flex-col font-sans">
       {/* ==========================================
@@ -370,9 +472,31 @@ export default function AppLayout({ children }: AppLayoutProps) {
             </button>
           </div>
 
+          {/* แผงข้อมูลผู้ใช้ในระบบ Sidebar */}
+          {userProfile && (
+            <div className="px-6 py-4 border-b border-blue-900/30 lg:border-slate-100 bg-blue-900/10 lg:bg-slate-50/50 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-blue-900 lg:bg-blue-50 flex items-center justify-center font-bold text-sm text-white lg:text-blue-900 shadow-inner shrink-0">
+                {userProfile.name.charAt(0)}
+              </div>
+              <div className="truncate text-left">
+                <p className="text-xs font-bold text-white lg:text-slate-800 truncate">{userProfile.name}</p>
+                <span className={cn(
+                  "inline-block text-[9px] font-extrabold px-2 py-0.5 rounded mt-1 uppercase tracking-wider text-white",
+                  userProfile.role === 'ADMIN' && "bg-rose-600",
+                  userProfile.role === 'MECHANIC' && "bg-amber-600",
+                  userProfile.role === 'OFFICE' && "bg-sky-600"
+                )}>
+                  {userProfile.role === 'ADMIN' && 'ผู้ดูแลระบบ'}
+                  {userProfile.role === 'MECHANIC' && 'ช่างซ่อมบำรุง'}
+                  {userProfile.role === 'OFFICE' && 'เจ้าหน้าที่ออฟฟิศ'}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* รายการลิงก์เมนูนำทาง */}
           <nav className="flex-1 p-4 space-y-1.5 overflow-y-auto">
-            {menuItems.map((item) => {
+            {getFilteredMenuItems().map((item) => {
               const isActive = pathname === item.path;
               const Icon = item.icon;
 
