@@ -56,3 +56,12 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// โมเดลสำหรับเก็บรายการสิทธิ์การใช้งานของแต่ละบทบาท (Dynamic Permissions Matrix)
+model RolePermission {
+  id           String   @id @default(uuid())
+  role         String   @unique // ADMIN, MECHANIC, OFFICE
+  allowedPages String   @db.Text // เก็บรายการ Path คั่นด้วยจุลภาค เช่น "/, /maintenance, /reports"
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

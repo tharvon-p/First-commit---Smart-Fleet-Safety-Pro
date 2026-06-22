@@ -315,6 +315,111 @@ class JSONUserDatabase {
   }
 }
 
+// ไฟล์สำหรับเก็บข้อมูลสิทธิ์การเข้าถึงหน้าจอสำรอง
+const FALLBACK_PERMISSIONS_FILE_PATH = path.join(process.cwd(), 'permissions_fallback.json');
+
+// โครงสร้างข้อมูลสิทธิ์ของบทบาทการใช้งาน
+export interface RolePermissionRecord {
+  id: string;
+  role: string;
+  allowedPages: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+class JSONRolePermissionDatabase {
+  private readData(): RolePermissionRecord[] {
+    try {
+      if (!fs.existsSync(FALLBACK_PERMISSIONS_FILE_PATH)) {
+        fs.writeFileSync(FALLBACK_PERMISSIONS_FILE_PATH, JSON.stringify([], null, 2), 'utf-8');
+        return [];
+      }
+      const fileContent = fs.readFileSync(FALLBACK_PERMISSIONS_FILE_PATH, 'utf-8');
+      return JSON.parse(fileContent) as RolePermissionRecord[];
+    } catch (error) {
+      console.error('Error reading fallback JSON Permissions DB:', error);
+      return [];
+    }
+  }
+
+  private writeData(data: RolePermissionRecord[]): void {
+    try {
+      fs.writeFileSync(FALLBACK_PERMISSIONS_FILE_PATH, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (error) {
+      console.error('Error writing fallback JSON Permissions DB:', error);
+    }
+  }
+
+  async findMany(args?: { where?: { role?: string } }): Promise<RolePermissionRecord[]> {
+    let records = this.readData();
+    if (args?.where) {
+      const { role } = args.where;
+      if (role) {
+        records = records.filter(r => r.role === role);
+      }
+    }
+    return records;
+  }
+
+  async findUnique(args: { where: { id?: string; role?: string } }): Promise<RolePermissionRecord | null> {
+    const records = this.readData();
+    if (args.where.id) {
+      return records.find(r => r.id === args.where.id) || null;
+    }
+    if (args.where.role) {
+      return records.find(r => r.role === args.where.role) || null;
+    }
+    return null;
+  }
+
+  async create(args: { data: Omit<RolePermissionRecord, 'id' | 'createdAt' | 'updatedAt'> }): Promise<RolePermissionRecord> {
+    const records = this.readData();
+    const now = new Date().toISOString();
+    const newRecord: RolePermissionRecord = {
+      ...args.data,
+      id: crypto.randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    records.push(newRecord);
+    this.writeData(records);
+    return newRecord;
+  }
+
+  async update(args: {
+    where: { role: string };
+    data: {
+      allowedPages?: string;
+    };
+  }): Promise<RolePermissionRecord> {
+    const records = this.readData();
+    const index = records.findIndex(r => r.role === args.where.role);
+    if (index === -1) {
+      const now = new Date().toISOString();
+      const newRecord: RolePermissionRecord = {
+        id: crypto.randomUUID(),
+        role: args.where.role,
+        allowedPages: args.data.allowedPages || '',
+        createdAt: now,
+        updatedAt: now,
+      };
+      records.push(newRecord);
+      this.writeData(records);
+      return newRecord;
+    }
+    const currentRecord = records[index];
+    const now = new Date().toISOString();
+    const updatedRecord: RolePermissionRecord = {
+      ...currentRecord,
+      ...args.data,
+      updatedAt: now,
+    };
+    records[index] = updatedRecord;
+    this.writeData(records);
+    return updatedRecord;
+  }
+}
+
 // ตรวจสอบความถูกต้องและสร้างออบเจ็กต์เชื่อมต่อ
 let prisma: PrismaClient | null = null;
 let useJsonDatabase = false;
@@ -338,6 +443,7 @@ if (process.env.DATABASE_URL) {
 // สร้างคลาส Mock Database Wrapper
 const jsonDb = new JSONDatabase();
 const jsonUserDb = new JSONUserDatabase();
+const jsonRolePermissionDb = new JSONRolePermissionDatabase();
 
 // ส่งออก Database Client ที่สามารถเรียกใช้รูปแบบเดียวกับ Prisma
 export const db = {
@@ -487,6 +593,65 @@ export const db = {
         console.error('Prisma connection error in user.delete, switching to Fallback JSON Database.', err);
         useJsonDatabase = true;
         return jsonUserDb.delete(args);
+      }
+    }
+  },
+
+  // ห่อหุ้มคำสั่งสำหรับ RolePermission table
+  rolePermission: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    findMany: async (args?: any) => {
+      if (useJsonDatabase || !prisma) {
+        return jsonRolePermissionDb.findMany(args);
+      }
+      try {
+        return await prisma.rolePermission.findMany(args);
+      } catch (err) {
+        console.error('Prisma connection error in rolePermission.findMany, switching to Fallback JSON Database.', err);
+        useJsonDatabase = true;
+        return jsonRolePermissionDb.findMany(args);
+      }
+    },
+    
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    findUnique: async (args: any) => {
+      if (useJsonDatabase || !prisma) {
+        return jsonRolePermissionDb.findUnique(args);
+      }
+      try {
+        return await prisma.rolePermission.findUnique(args);
+      } catch (err) {
+        console.error('Prisma connection error in rolePermission.findUnique, switching to Fallback JSON Database.', err);
+        useJsonDatabase = true;
+        return jsonRolePermissionDb.findUnique(args);
+      }
+    },
+    
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    create: async (args: any) => {
+      if (useJsonDatabase || !prisma) {
+        return jsonRolePermissionDb.create(args);
+      }
+      try {
+        return await prisma.rolePermission.create(args);
+      } catch (err) {
+        console.error('Prisma connection error in rolePermission.create, switching to Fallback JSON Database.', err);
+        useJsonDatabase = true;
+        return jsonRolePermissionDb.create(args);
+      }
+    },
+    
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    update: async (args: any) => {
+      if (useJsonDatabase || !prisma) {
+        return jsonRolePermissionDb.update(args);
+      }
+      try {
+        return await prisma.rolePermission.update(args);
+      } catch (err) {
+        console.error('Prisma connection error in rolePermission.update, switching to Fallback JSON Database.', err);
+        useJsonDatabase = true;
+        return jsonRolePermissionDb.update(args);
       }
     }
   }

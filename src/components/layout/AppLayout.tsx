@@ -47,6 +47,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
+  const [rolePermissions, setRolePermissions] = useState<Record<string, string[]>>({});
 
   // ดึงสถานะการใช้ฐานข้อมูลจำลองจาก API และตรวจสอบเซสชันตอนโหลดแอปครั้งแรก
   useEffect(() => {
@@ -60,6 +61,32 @@ export default function AppLayout({ children }: AppLayoutProps) {
         }
       } catch {
         setIsFallback(true);
+      }
+
+      // โหลดสิทธิ์จาก cache ในเครื่องก่อน
+      const cached = localStorage.getItem('thailux_role_permissions');
+      if (cached) {
+        try {
+          setRolePermissions(JSON.parse(cached));
+        } catch {
+          // ignore
+        }
+      }
+
+      // ดึงสิทธิ์ล่าสุดจาก API
+      try {
+        const permRes = await fetch('/api/permissions');
+        const permData = await permRes.json();
+        if (permData.success && permData.data) {
+          const permMap: Record<string, string[]> = {};
+          permData.data.forEach((p: { role: string; allowedPages: string }) => {
+            permMap[p.role] = p.allowedPages.split(',').map((s: string) => s.trim()).filter(Boolean);
+          });
+          setRolePermissions(permMap);
+          localStorage.setItem('thailux_role_permissions', JSON.stringify(permMap));
+        }
+      } catch (err) {
+        console.error('Error fetching permissions from API:', err);
       }
 
       // 2. ตรวจสอบเซสชันการล็อกอินจาก localStorage
@@ -125,6 +152,19 @@ export default function AppLayout({ children }: AppLayoutProps) {
     setPassword('');
   };
 
+  // ค้นหารายการหน้าจอที่ได้รับสิทธิ์ตามแต่ละ Role (รองรับการ Fallback สิทธิ์เริ่มต้น)
+  const getAllowedPagesForRole = (role: string): string[] => {
+    if (rolePermissions && rolePermissions[role]) {
+      return rolePermissions[role];
+    }
+    const DEFAULT_PERMS: Record<string, string[]> = {
+      ADMIN: ['/', '/inspection', '/maintenance', '/reports', '/users'],
+      MECHANIC: ['/', '/inspection', '/maintenance'],
+      OFFICE: ['/', '/inspection', '/reports', '/maintenance']
+    };
+    return DEFAULT_PERMS[role] || [];
+  };
+
   // ดึงรายการเมนูที่กรองตามสิทธิ์ของผู้ใช้
   const getFilteredMenuItems = () => {
     const role = userProfile?.role;
@@ -135,40 +175,36 @@ export default function AppLayout({ children }: AppLayoutProps) {
         path: '/',
         icon: LayoutDashboard,
         desc: 'สถิติและสถานะรถบัสเรียลไทม์',
-        allowedRoles: ['ADMIN', 'MECHANIC', 'OFFICE']
       },
       {
         name: '📋 ตรวจสภาพรถประจำวัน',
         path: '/inspection',
         icon: ClipboardCheck,
         desc: 'ฟอร์มเช็ก 21 จุด (สำหรับคนขับ)',
-        allowedRoles: ['ADMIN', 'MECHANIC', 'OFFICE']
       },
       {
         name: '🛠️ ประวัติการซ่อมบำรุง',
         path: '/maintenance',
         icon: Wrench,
         desc: 'ประวัติและข้อมูลจากช่างซ่อม',
-        allowedRoles: ['ADMIN', 'MECHANIC', 'OFFICE']
       },
       {
         name: '📑 ออกรายงาน PDF',
         path: '/reports',
         icon: FileText,
         desc: 'รายงาน Matrix 31 วันมาตรฐาน',
-        allowedRoles: ['ADMIN', 'OFFICE']
       },
       {
         name: '👥 จัดการผู้ใช้งาน',
         path: '/users',
         icon: Users,
-        allowedRoles: ['ADMIN'],
         desc: 'จัดการบัญชีและกำหนดสิทธิ์พนักงาน'
       }
     ];
 
     if (!role) return allItems.filter(item => item.path === '/inspection');
-    return allItems.filter(item => item.allowedRoles.includes(role));
+    const allowed = getAllowedPagesForRole(role);
+    return allItems.filter(item => allowed.includes(item.path));
   };
 
   // ตรวจสอบความถูกต้องของสิทธิ์การเข้าถึงเส้นทางปัจจุบัน (Route Authorization Guard)
@@ -178,17 +214,10 @@ export default function AppLayout({ children }: AppLayoutProps) {
     const role = userProfile?.role;
     if (!role) return false;
     
-    if (role === 'ADMIN') return true;
+    if (role === 'ADMIN') return true; // ADMIN เข้าใช้งานได้ทุกหน้าเสมอเป็นสิทธิ์สูงสุด
     
-    if (role === 'MECHANIC') {
-      return ['/', '/maintenance'].includes(pathname);
-    }
-    
-    if (role === 'OFFICE') {
-      return ['/', '/reports', '/maintenance'].includes(pathname);
-    }
-    
-    return false;
+    const allowed = getAllowedPagesForRole(role);
+    return allowed.includes(pathname);
   };
 
   const isDriverView = pathname === '/inspection';
