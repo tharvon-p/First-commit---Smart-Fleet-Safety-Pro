@@ -3,7 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { calculateInspectionStatus } from '@/lib/utils';
+import { calculateInspectionStatus, CHECKLIST_ITEMS } from '@/lib/utils';
 
 // ดึงข้อมูลรายการการตรวจสภาพรถทั้งหมด พร้อมระบบฟิลเตอร์
 export async function GET(request: NextRequest) {
@@ -72,6 +72,110 @@ export async function GET(request: NextRequest) {
   }
 }
 
+interface TelegramInspectionInput {
+  plateNumber: string;
+  factory: string;
+  driverName: string;
+  driverPhone: string;
+  shift: string;
+  mileage: number;
+  status: string;
+  createdAt: Date | string;
+  items: unknown;
+}
+
+// ฟังก์ชันส่งการแจ้งเตือนผ่าน Telegram Bot API
+async function sendTelegramNotification(inspection: TelegramInspectionInput) {
+  try {
+    const token = process.env.TELEGRAM_BOT_TOKEN || '8070197477:AAEHQgBIiRRDVPNEVTj5mX-BRnqCHFS1w7E';
+    const rawChatId = process.env.TELEGRAM_CHAT_ID || '-5272518813';
+    
+    // รองรับการส่งเข้าหลายแชทคั่นด้วยจุลภาค
+    const chatIds = rawChatId.split(',').map(id => id.trim()).filter(id => id.length > 0);
+
+    // ดึงจุดที่เกิดการชำรุด ( items เก็บแบบ { key: boolean } โดยที่ false = ชำรุด )
+    const items = inspection.items as Record<string, boolean>;
+    const defectedItemsList: string[] = [];
+
+    Object.entries(items).forEach(([key, value]) => {
+      if (value === false) {
+        const checkItem = CHECKLIST_ITEMS.find(item => item.key === key);
+        if (checkItem) {
+          defectedItemsList.push(`${checkItem.isCritical ? '🚨' : '⚠️'} ${checkItem.label}`);
+        }
+      }
+    });
+
+    let statusEmoji = '🟢';
+    let statusText = 'ปกติ (พร้อมใช้งาน)';
+    if (inspection.status === 'รอคิวซ่อม') {
+      statusEmoji = '🟡';
+      statusText = 'รอคิวซ่อมบำรุง (ชำรุดจุดย่อย)';
+    } else if (inspection.status === 'ระงับการวิ่ง') {
+      statusEmoji = '🔴';
+      statusText = 'ระงับการวิ่งชั่วคราว (พบจุดวิกฤตความปลอดภัย!)';
+    }
+
+    const formattedTime = new Date(inspection.createdAt).toLocaleDateString('th-TH', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }) + ' เวลา ' + new Date(inspection.createdAt).toLocaleTimeString('th-TH', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }) + ' น.';
+
+    const messageLines = [
+      `🔔 *แจ้งเตือนการตรวจสภาพรถบัสประจำวัน*`,
+      `━━━━━━━━━━━━━━━━━━━━`,
+      `🚌 *ทะเบียนรถบัส:* ${inspection.plateNumber}`,
+      `🏢 *สังกัดโรงงาน:* ${inspection.factory}`,
+      `👤 *พนักงานขับรถ:* ${inspection.driverName}`,
+      `📞 *เบอร์โทรศัพท์:* ${inspection.driverPhone}`,
+      `⏱️ *กะทำงาน/เที่ยววิ่ง:* ${inspection.shift}`,
+      `🔢 *เลขไมล์สะสม:* ${inspection.mileage.toLocaleString()} กม.`,
+      `📅 *วัน-เวลาตรวจ:* ${formattedTime}`,
+      `━━━━━━━━━━━━━━━━━━━━`,
+      `${statusEmoji} *ผลการตรวจสอบ:* *${inspection.status}*`,
+      `💬 *รายละเอียด:* ${statusText}`,
+    ];
+
+    if (defectedItemsList.length > 0) {
+      messageLines.push(`\n🔎 *จุดบกพร่องที่ตรวจพบ (${defectedItemsList.length} รายการ):*`);
+      defectedItemsList.forEach(item => {
+        messageLines.push(`  • ${item}`);
+      });
+    } else {
+      messageLines.push(`\n✅ ผ่านการตรวจสอบความปลอดภัยทุกจุด`);
+    }
+
+    // ลิงก์ดูข้อมูลในแดชบอร์ด
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://first-commit-smart-fleet-safety-pro.vercel.app';
+    messageLines.push(`\n🔗 [คลิกเพื่อตรวจสอบข้อมูลบนระบบควบคุม](${baseUrl})`);
+
+    const fullMessage = messageLines.join('\n');
+
+    // ส่งข้อความแจ้งเตือนหาทุก Chat ID ที่ตั้งค่าไว้
+    for (const chatId of chatIds) {
+      const telegramUrl = `https://api.telegram.org/bot${token}/sendMessage`;
+      await fetch(telegramUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: fullMessage,
+          parse_mode: 'Markdown',
+          disable_web_page_preview: true,
+        }),
+      });
+    }
+  } catch (error) {
+    console.error('Error sending Telegram notification:', error);
+  }
+}
+
 // รับข้อมูลจากฟอร์มคนขับรถบัส และทำการคำนวณผลลัพธ์เพื่อเซฟลงฐานข้อมูล
 export async function POST(request: NextRequest) {
   try {
@@ -114,6 +218,9 @@ export async function POST(request: NextRequest) {
         repairedAt: null
       },
     });
+
+    // ส่งการแจ้งเตือน Telegram หลังบันทึกข้อมูลเรียบร้อย (ทำงานแบบ Safe Call ไม่ขัดขวางการตอบกลับ พขร. หาก Telegram ล่ม)
+    await sendTelegramNotification(newInspection);
 
     return NextResponse.json({
       success: true,
